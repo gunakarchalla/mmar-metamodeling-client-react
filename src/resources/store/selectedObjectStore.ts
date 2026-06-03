@@ -179,6 +179,9 @@ export interface SelectedObjectState {
   // --- General-tab two-way binding: mutate a (possibly nested) field of
   //     selectedObject in place and commit so React subscribers re-render ---
   updateSelectedField: (path: string, value: unknown) => void;
+  // re-ref selectedObject after an external in-place mutation of one of its
+  // nested arrays (e.g. ParentChildSelect row reordering) so subscribers re-render
+  commitSelected: () => void;
 }
 
 export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => {
@@ -1264,6 +1267,10 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
         target = target[parts[i]];
       }
       target[parts[parts.length - 1]] = value;
+      commit();
+    },
+
+    commitSelected: () => {
       commit();
     },
   };

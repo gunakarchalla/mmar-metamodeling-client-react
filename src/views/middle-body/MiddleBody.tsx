@@ -2,6 +2,38 @@ import { useEffect } from "react";
 import { Box, Tabs, Tab, Typography } from "@mui/material";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import GeneralTab from "./general-tab/GeneralTab";
+import AttributesTab from "./structural-tabs/AttributesTab";
+import ClassesTab from "./structural-tabs/ClassesTab";
+import PortsTab from "./structural-tabs/PortsTab";
+import RelationClassesTab from "./structural-tabs/RelationClassesTab";
+import RelationsTab from "./structural-tabs/RelationsTab";
+import ProceduresTab from "./structural-tabs/ProceduresTab";
+import ReferenceTab from "./structural-tabs/ReferenceTab";
+import TableTab from "./structural-tabs/TableTab";
+import ReadRightTab from "./structural-tabs/ReadRightTab";
+import WriteRightTab from "./structural-tabs/WriteRightTab";
+import DeleteRightTab from "./structural-tabs/DeleteRightTab";
+import CanCreateInstanceTab from "./structural-tabs/CanCreateInstanceTab";
+import UserGroupsTab from "./structural-tabs/UserGroupsTab";
+
+// Non-General tab label -> component. Phase 6 added the structural / relational
+// tabs; Phase 7 adds the AttributeType (Reference, Table), UserGroup rights
+// (Read/Write/Delete Right, Can Create Instance) and User (User Groups) tabs.
+const TAB_COMPONENTS: Record<string, () => JSX.Element> = {
+  Attributes: AttributesTab,
+  Classes: ClassesTab,
+  Ports: PortsTab,
+  RelationClasses: RelationClassesTab,
+  Relations: RelationsTab,
+  Procedures: ProceduresTab,
+  Reference: ReferenceTab,
+  Table: TableTab,
+  "Read Right": ReadRightTab,
+  "Write Right": WriteRightTab,
+  "Delete Right": DeleteRightTab,
+  "Can Create Instance": CanCreateInstanceTab,
+  "User Groups": UserGroupsTab,
+};
 
 // Ports middle-body.{ts,html}. The tab definitions are copied verbatim from the
 // original `tabDefinitions` array (14 rows). visibleTabs is derived from the
@@ -84,11 +116,17 @@ export default function MiddleBody() {
 
       <Box className="tab-content" sx={{ mt: 2 }}>
         {activeTab === "General" && <GeneralTab />}
-        {activeTab && activeTab !== "General" && (
-          <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-            The “{activeTab}” tab is implemented in a later phase.
-          </Typography>
-        )}
+        {activeTab &&
+          activeTab !== "General" &&
+          (() => {
+            const TabComponent = TAB_COMPONENTS[activeTab];
+            if (TabComponent) return <TabComponent />;
+            return (
+              <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                The “{activeTab}” tab is not implemented.
+              </Typography>
+            );
+          })()}
       </Box>
     </Box>
   );

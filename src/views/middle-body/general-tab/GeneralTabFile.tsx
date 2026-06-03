@@ -5,18 +5,18 @@ import PublishIcon from "@mui/icons-material/Publish";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { File as MetaFile } from "@gds/models/meta/Metamodel_files.structure";
 import { HelperService } from "@/resources/services/helper-service";
+import DialogUploadFile from "./general-tab-file/DialogUploadFile";
 
 const helperService = new HelperService();
 
 // Ports general-tab-file.{ts,html}: shows the file content as an image preview,
-// a Download button, the file size, and a Replace-File button.
-//
-// NOTE: the upload/replace flow (dialog-upload-file) is implemented in Phase 8;
-// the "Replace File" button is a clearly-marked placeholder for now.
+// a Download button, the file size, and a Replace-File button that opens the
+// DialogUploadFile upload flow.
 export default function GeneralTabFile() {
   const obj = useSelectedObjectStore((s) => s.selectedObject);
   const [imageString, setImageString] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   // getFile() + getImage(): rebuild a browser File from the byte data and turn it
   // into a data-url for preview.
@@ -102,8 +102,13 @@ export default function GeneralTabFile() {
           >
             Download File
           </Button>
-          <Button variant="outlined" size="small" startIcon={<PublishIcon />} disabled>
-            Replace File (Phase 8)
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<PublishIcon />}
+            onClick={() => setUploadOpen(true)}
+          >
+            Replace File
           </Button>
         </Stack>
       </Stack>
@@ -113,6 +118,8 @@ export default function GeneralTabFile() {
           Size: {formatFileSize(o.data.data.length)}
         </Typography>
       )}
+
+      <DialogUploadFile open={uploadOpen} onClose={() => setUploadOpen(false)} />
     </Box>
   );
 }
