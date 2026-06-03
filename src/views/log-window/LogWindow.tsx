@@ -1,0 +1,82 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  Box,
+  Typography,
+  IconButton,
+  Icon,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+} from "@mui/material";
+import OpenInFullIcon from "@mui/icons-material/OpenInFull";
+import { useLogStore } from "@/resources/store/logStore";
+
+function LogEntries() {
+  const logArray = useLogStore((s) => s.logArray);
+  const time = new Date().toDateString();
+  return (
+    <>
+      {logArray.map((entry, i) => (
+        <Tooltip key={i} title={entry.value} placement="left">
+          <Box
+            sx={{
+              alignContent: "center",
+              fontSize: "8pt",
+              borderTop: "solid 1pt rgb(128,128,128)",
+              px: 0.5,
+              py: 0.25,
+            }}
+          >
+            {time}:
+            <br />
+            <Icon sx={{ fontSize: "12pt", verticalAlign: "middle", mr: 0.5 }}>
+              {entry.status}
+            </Icon>
+            <span>{entry.value}</span>
+          </Box>
+        </Tooltip>
+      ))}
+    </>
+  );
+}
+
+// Mirrors log-window: a scrollable "Log" panel with an expand-to-dialog button.
+// logArray is newest-first (logStore unshifts), so newest entries are at the top;
+// we keep the scroll pinned to the top when new entries arrive.
+export default function LogWindow() {
+  const [open, setOpen] = useState(false);
+  const logArray = useLogStore((s) => s.logArray);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [logArray.length]);
+
+  return (
+    <Box sx={{ height: "100%", overflowY: "auto", p: 1 }} ref={scrollRef}>
+      <Typography variant="h6" sx={{ m: 0, p: 0, display: "flex", alignItems: "center" }}>
+        Log
+        <IconButton size="small" onClick={() => setOpen(true)}>
+          <OpenInFullIcon fontSize="small" />
+        </IconButton>
+      </Typography>
+
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Log Window</DialogTitle>
+        <DialogContent>
+          <LogEntries />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)} autoFocus>
+            Ok
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <LogEntries />
+    </Box>
+  );
+}
