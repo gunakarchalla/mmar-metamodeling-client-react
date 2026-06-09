@@ -142,7 +142,7 @@ export default function TopNavBar({ onOpenLogin }: Props) {
   }
 
   return (
-    <AppBar position="static" color="default" elevation={1}>
+    <AppBar position="static" color="primary" elevation={1}>
       <Toolbar variant="dense" sx={{ gap: 1 }}>
         <Typography variant="h6" noWrap sx={{ mr: 2 }}>
           MMAR Metamodeling Client

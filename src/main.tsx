@@ -21,7 +21,43 @@ const theme = createTheme({
     // Tooltips with arrows mirror the MDC tooltip look used throughout the
     // original; buttons keep mixed-case labels (MUI defaults to UPPERCASE).
     MuiTooltip: { defaultProps: { arrow: true } },
-    MuiButton: { styleOverrides: { root: { textTransform: "none" } } },
+    // All buttons render black regardless of variant/color. The per-variant
+    // overrides win over MUI's internal color styles, so even buttons that
+    // pass color="inherit"/"primary" end up black.
+    MuiButton: {
+      styleOverrides: {
+        root: { textTransform: "none" },
+        text: {
+          color: "#000000",
+          "&.Mui-disabled": { color: "rgba(0, 0, 0, 0.26)" },
+        },
+        outlined: {
+          color: "#000000",
+          borderColor: "#000000",
+          "&:hover": {
+            borderColor: "#000000",
+            backgroundColor: "rgba(0, 0, 0, 0.04)",
+          },
+          "&.Mui-disabled": {
+            color: "rgba(0, 0, 0, 0.26)",
+            borderColor: "rgba(0, 0, 0, 0.12)",
+          },
+        },
+        contained: {
+          color: "#ffffff",
+          backgroundColor: "#000000",
+          "&:hover": { backgroundColor: "#1a1a1a" },
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          color: "#000000",
+          "&.Mui-disabled": { color: "rgba(0, 0, 0, 0.26)" },
+        },
+      },
+    },
   },
 });
 
