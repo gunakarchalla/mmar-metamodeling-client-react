@@ -1,14 +1,30 @@
 import { useEffect, useState } from "react";
 import { Box, Icon, Typography, CircularProgress } from "@mui/material";
+import { styled } from "@mui/material/styles";
+import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import { backendService } from "@/resources/services/backend-service";
-import RightNav from "@/views/right-nav/RightNav";
 import LogWindow from "@/views/log-window/LogWindow";
 import LeftNav from "@/views/left-nav/LeftNav";
 import MiddleBody from "@/views/middle-body/MiddleBody";
 
+// A draggable divider styled as a thin MUI divider that highlights on
+// hover/drag. Reused between every pair of panels. The library handles the
+// drag mechanics and (via PanelGroup autoSaveId) persists the layout.
+const ResizeHandle = styled(PanelResizeHandle)(({ theme }) => ({
+  width: 5,
+  flex: "0 0 auto",
+  backgroundColor: theme.palette.divider,
+  cursor: "col-resize",
+  transition: theme.transitions.create("background-color"),
+  '&:hover, &[data-resize-handle-state="drag"]': {
+    backgroundColor: theme.palette.primary.main,
+  },
+}));
+
 // Mirrors main-body-tab-bar: pings the server (after a short delay) and shows
-// either the 3-column content area or a "no connection" message.
-// LeftNav (Phase 4) and MiddleBody (Phase 5) are placeholders for now.
+// either the resizable 3-column content area or a "no connection" message.
+// Columns (left-nav | middle-body | log window) are horizontally resizable;
+// autoSaveId persists the layout to localStorage across reloads.
 export default function MainBody() {
   const [isConnected, setIsConnected] = useState<boolean | undefined>(undefined);
 
@@ -62,38 +78,31 @@ export default function MainBody() {
   }
 
   return (
-    <Box sx={{ flex: 1, display: "flex", minHeight: 0 }}>
+    <PanelGroup
+      direction="horizontal"
+      autoSaveId="mmar-metamodeling-layout"
+      style={{ flex: 1, minHeight: 0 }}
+    >
       {/* Left-nav: object-category accordions */}
-      <Box
-        className="left-nav"
-        sx={{
-          flex: "0 0 260px",
-          borderRight: "1px solid",
-          borderColor: "divider",
-          overflowY: "auto",
-        }}
-      >
+      <Panel defaultSize={18} minSize={12} maxSize={35} style={{ overflowY: "auto" }}>
         <LeftNav />
-      </Box>
+      </Panel>
+
+      <ResizeHandle />
 
       {/* Middle-body: object tabs (General + structural/relational tabs) */}
-      <Box className="middle-body" sx={{ flex: 1, overflowY: "auto", p: 1 }}>
-        <MiddleBody />
-      </Box>
+      <Panel minSize={30}>
+        <Box className="middle-body" sx={{ height: "100%", overflowY: "auto", p: 1 }}>
+          <MiddleBody />
+        </Box>
+      </Panel>
 
-      <RightNav />
+      <ResizeHandle />
 
-      {/* Log window region */}
-      <Box
-        sx={{
-          flex: "0 0 280px",
-          borderLeft: "1px solid",
-          borderColor: "divider",
-          minHeight: 0,
-        }}
-      >
+      {/* Log window */}
+      <Panel defaultSize={20} minSize={12} maxSize={40}>
         <LogWindow />
-      </Box>
-    </Box>
+      </Panel>
+    </PanelGroup>
   );
 }
