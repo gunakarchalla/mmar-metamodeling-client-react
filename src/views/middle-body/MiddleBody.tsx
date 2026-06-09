@@ -52,6 +52,7 @@ const tabDefinitions = [
       "User",
       "UserGroup",
       "Procedure",
+      "File",
     ],
   },
   {

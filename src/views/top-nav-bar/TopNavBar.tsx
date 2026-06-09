@@ -203,7 +203,7 @@ export default function TopNavBar({ onOpenLogin }: Props) {
         <img
           alt="UnifrLogo"
           style={{ height: 36, marginLeft: 12 }}
-          src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Universit%C3%A4t_Freiburg_%28Schweiz%29_logo_small.svg/220px-Universit%C3%A4t_Freiburg_%28Schweiz%29_logo_small.svg.png"
+          src="//cdn.unifr.ch/uf/v2.4.5/gfx/logo.png"
         />
       </Toolbar>
     </AppBar>
