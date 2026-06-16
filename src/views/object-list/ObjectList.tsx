@@ -39,7 +39,13 @@ export default function ObjectList({ type }: Props) {
     (s) => s[field] as unknown as MetaObject[],
   );
   const selectedObject = useSelectedObjectStore((s) => s.selectedObject);
+  const selectedType = useSelectedObjectStore((s) => s.type);
   const isAuthenticated = useAuthStore((s) => s.currentUser != null);
+
+  // `selectedObject`/`selectedType` are global to the store, so only this
+  // section should treat its object as selected (otherwise selecting a card in
+  // one section would enable "Remove selected" in every section).
+  const isSelectedInThisSection = selectedObject != null && selectedType === type;
 
   // Sort alphabetically (original sorts in attached()) then filter by name.
   const filteredItems = useMemo(() => {
@@ -100,7 +106,7 @@ export default function ObjectList({ type }: Props) {
           size="small"
           color="error"
           startIcon={<DeleteIcon />}
-          disabled={!selectedObject}
+          disabled={!isSelectedInThisSection}
           onClick={removeObject}
         >
           Remove selected
