@@ -342,7 +342,11 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
           console.warn(`Unknown type: ${type}`);
       }
 
-      set((s) => ({ selectedObject, type, revision: s.revision + 1 }));
+      // Store a working copy decoupled from the collection item so in-progress
+      // edits (e.g. the name/geometry shown on the object card in the list) are
+      // not reflected in the list until saveSelectedObject -> updateLocalObject
+      // replaces the collection item with the persisted server response.
+      set((s) => ({ selectedObject: reref(selectedObject), type, revision: s.revision + 1 }));
       const fullobj = get().getObjectFromUuid(objUuid);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       log(`Selected object: ${(fullobj as any)?.name}`, "info");

@@ -11,7 +11,8 @@ interface Props {
 // Ports object-card.{ts,html}. A clickable MUI Card showing the object's icon
 // (extracted from its geometry/VizRep via the store's getIcon) and its name.
 // Clicking saves the current selection then selects this object — exactly like
-// the original onButtonClicked.
+// the original onButtonClicked. The already-selected card is disabled so it
+// cannot be reselected.
 export default function ObjectCard({ object }: Props) {
   // Subscribe to the selected object's uuid so the highlight re-renders on change.
   const selectedUuid = useSelectedObjectStore((s) => s.selectedObject?.uuid);
@@ -45,6 +46,7 @@ export default function ObjectCard({ object }: Props) {
       >
         <CardActionArea
           onClick={onButtonClicked}
+          disabled={isSelected}
           sx={{
             display: "flex",
             flexDirection: "column",
