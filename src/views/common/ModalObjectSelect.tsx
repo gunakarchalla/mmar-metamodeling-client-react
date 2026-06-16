@@ -255,7 +255,15 @@ export default function ModalObjectSelect({
                     key={item.uuid}
                     hover
                     selected={isSelected(item.uuid)}
-                    sx={{ cursor: "pointer" }}
+                    sx={{
+                      cursor: "pointer",
+                      "&.Mui-selected": {
+                        backgroundColor: "primary.light",
+                      },
+                      "&.Mui-selected:hover": {
+                        backgroundColor: "primary.main",
+                      },
+                    }}
                     onClick={() => selectObject(item.uuid)}
                   >
                     <TableCell>
