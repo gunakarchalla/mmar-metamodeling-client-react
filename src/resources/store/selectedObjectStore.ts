@@ -1267,7 +1267,15 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let target: any = obj;
       for (let i = 0; i < parts.length - 1; i++) {
-        if (target[parts[i]] === null || target[parts[i]] === undefined) return;
+        // Auto-create missing intermediate objects so nested fields can be set
+        // even when their parent is absent. Coordinate objects (coordinates_2d,
+        // relative_coordinate_3d, absolute_coordinate_3d) are left undefined by
+        // the MetaObject constructor unless a value was provided, so without this
+        // the X/Y/Z inputs (bound to e.g. "coordinates_2d.x") could never be
+        // edited. (rotation always has a default, which is why it already works.)
+        if (target[parts[i]] === null || target[parts[i]] === undefined) {
+          target[parts[i]] = {};
+        }
         target = target[parts[i]];
       }
       target[parts[parts.length - 1]] = value;
