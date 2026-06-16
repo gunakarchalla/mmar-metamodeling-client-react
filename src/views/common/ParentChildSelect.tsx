@@ -85,7 +85,11 @@ function MinMaxCell({
   );
 }
 
-// UI-component selector for Attribute / Column rows.
+// UI-component selector for Attribute / Column rows. The available components
+// depend on whether the attribute defines facets (a `|`-separated string,
+// same check as GeneralTabAttribute): with facets the value comes from a fixed
+// set, so only Dropdown / Slider make sense; without facets the value is free,
+// so only Text / Button are offered. The unavailable items are disabled.
 function UiComponentCell({
   row,
   onChange,
@@ -93,6 +97,7 @@ function UiComponentCell({
   row: AnyObj;
   onChange: (value: string) => void;
 }) {
+  const hasFacets = !!row.facets && row.facets.split("|").length > 0;
   return (
     <Select
       size="small"
@@ -101,10 +106,18 @@ function UiComponentCell({
       onChange={(e) => onChange(e.target.value)}
       sx={{ minWidth: 130 }}
     >
-      <MenuItem value="text">Text</MenuItem>
-      <MenuItem value="dropdown">Dropdown</MenuItem>
-      <MenuItem value="slider">Slider</MenuItem>
-      <MenuItem value="button">Button</MenuItem>
+      <MenuItem value="text" disabled={hasFacets}>
+        Text
+      </MenuItem>
+      <MenuItem value="dropdown" disabled={!hasFacets}>
+        Dropdown
+      </MenuItem>
+      <MenuItem value="slider" disabled={!hasFacets}>
+        Slider
+      </MenuItem>
+      <MenuItem value="button" disabled={hasFacets}>
+        Button
+      </MenuItem>
     </Select>
   );
 }
