@@ -530,10 +530,28 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
       const referenceKey = type ? referenceTypes[type] : undefined;
 
       if (referenceKey) {
+        const so = get().selectedObject as AttributeType;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const role = (get().selectedObject as AttributeType).role as any;
+        const role = so.role as any;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         role[referenceKey] = role[referenceKey].filter((ref: any) => ref.uuid !== uuid);
+        // When the last reference is removed the role has no references left:
+        // drop it entirely so saveSelectedObject (hardpatch) sends no role and
+        // the server deletes it (Metamodel_attribute_types.hardUpdate removes the
+        // role when the incoming attribute type has none). Otherwise an empty
+        // role lingers on the attribute type. Mirror of
+        // selectedObjectAddReferenceRole, which lazily creates the role when the
+        // first reference is added.
+        const isEmpty =
+          role.class_references.length === 0 &&
+          role.relationclass_references.length === 0 &&
+          role.port_references.length === 0 &&
+          role.scenetype_references.length === 0 &&
+          role.attribute_references.length === 0;
+        if (isEmpty) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (so as any).role = undefined;
+        }
         commit();
       } else {
         console.warn(`Unknown type: ${type}`);
