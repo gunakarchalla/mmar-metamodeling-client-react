@@ -35,6 +35,7 @@ export default function InlineObjectPicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const addChild = useSelectedObjectStore((s) => s.addChild);
+  const getTypeFromUuid = useSelectedObjectStore((s) => s.getTypeFromUuid);
 
   // Resolve candidate objects exactly like modal-object-select.attached():
   // Bendpoint -> Class candidates, everything else -> getObjects(objecttype).
@@ -47,9 +48,14 @@ export default function InlineObjectPicker({
   const filtered = items.filter((item) => {
     if (!search) return true;
     const s = search.toLowerCase();
+    // Match on name, description AND the object's type so that searching for a
+    // type name (e.g. "SceneType") returns every object of that type, not just
+    // the few whose name/description happen to contain the text.
+    const type = getTypeFromUuid(item.uuid);
     return (
       item.name?.toLowerCase().includes(s) ||
-      item.description?.toLowerCase().includes(s)
+      item.description?.toLowerCase().includes(s) ||
+      type?.toLowerCase().includes(s)
     );
   });
 

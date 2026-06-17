@@ -112,16 +112,18 @@ export default function ModalObjectSelect({
   const filteredItems = useMemo(() => {
     if (!searchTerm) return sorted;
     const s = searchTerm.toLowerCase();
+    // Match on name, description AND the object's type so that searching for a
+    // type name (e.g. "SceneType") returns every object of that type, not just
+    // the few whose name/description happen to contain the text.
     return sorted.filter((item) => {
-      if (item.description) {
-        return (
-          item.name.toLowerCase().includes(s) ||
-          item.description.toLowerCase().includes(s)
-        );
-      }
-      return item.name.toLowerCase().includes(s);
+      const type = getTypeFromUuid(item.uuid);
+      return (
+        item.name?.toLowerCase().includes(s) ||
+        item.description?.toLowerCase().includes(s) ||
+        type?.toLowerCase().includes(s)
+      );
     });
-  }, [sorted, searchTerm]);
+  }, [sorted, searchTerm, getTypeFromUuid]);
 
   function isSelected(uuid: string): boolean {
     return selectedUuids.includes(uuid);
