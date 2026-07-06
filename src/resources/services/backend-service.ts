@@ -9,8 +9,9 @@ import { File } from "@gds/models/meta/Metamodel_files.structure";
 import { Usergroup } from "@gds/models/meta/Metamodel_usergroups.structure";
 import { User } from "@gds/models/meta/Metamodel_users.structure";
 import { Role } from "@gds/models/meta/Metamodel_roles.structure";
-import { MetaObject } from "@gds/models/meta/Metamodel_metaobjects.structure";
+import { MetaObject, UUID } from "@gds/models/meta/Metamodel_metaobjects.structure";
 import { Procedure } from "@gds/models/meta/Metamodel_procedure.structure";
+import { SceneInstance } from "@gds/models/instance/Instance_scenes.structure";
 import { apiFetch } from "./api";
 import { HelperService } from "./helper-service";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
@@ -372,6 +373,64 @@ export class BackendService {
         return "users";
       default:
         console.warn(`Unknown type: ${type}`);
+    }
+  }
+
+  /**
+   * GET /metamodel/files/alluuids -> UUID[] (server wraps them under `uuids`).
+   * Ported 1:1 from the vizrep client's backend-service for the vizrep-editor
+   * services (meta-utility.getAllFileUUIDs). Endpoint prefixed with `metamodel/`
+   * to match this client's file routes (mmar-server mounts files under /metamodel).
+   */
+  async getAllFileUUIDs(): Promise<UUID[]> {
+    try {
+      const token = localStorage.getItem("auth_token");
+      if (!token) return [];
+      const response = await apiFetch("metamodel/files/alluuids", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`${response.statusText} - ${await response.text()}`);
+      }
+      const result = JSON.parse(await response.text());
+      return result["uuids"];
+    } catch (error) {
+      log(`Error getting file uuids: ${error}`, "error");
+      return [];
+    }
+  }
+
+  /**
+   * GET /instances/sceneTypes/{uuid}/sceneInstances -> SceneInstance[].
+   * Ported 1:1 from the vizrep client for instance-utility.getAllSceneInstancesFromDB.
+   */
+  async sceneInstancesAllGET(sceneTypeUUID: string): Promise<SceneInstance[]> {
+    try {
+      if (sceneTypeUUID === undefined || sceneTypeUUID === null) {
+        throw new Error("The parameter 'sceneTypeUUID' must be defined.");
+      }
+      const token = localStorage.getItem("auth_token");
+      if (!token) return [];
+      const url = `instances/sceneTypes/${encodeURIComponent(sceneTypeUUID)}/sceneInstances`;
+      const response = await apiFetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`${response.statusText} - ${await response.text()}`);
+      }
+      const data = await response.json();
+      return Array.isArray(data)
+        ? data.map((item) => SceneInstance.fromJS(item) as SceneInstance)
+        : [];
+    } catch (error) {
+      log(`Error getting scene instances: ${error}`, "error");
+      return [];
     }
   }
 
