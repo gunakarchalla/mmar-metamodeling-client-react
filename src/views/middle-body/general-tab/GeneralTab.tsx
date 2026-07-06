@@ -9,6 +9,7 @@ import GeneralTabRelationclass from "./GeneralTabRelationclass";
 import GeneralTabUser from "./GeneralTabUser";
 import GeneralTabProcedure from "./GeneralTabProcedure";
 import GeneralTabFile from "./GeneralTabFile";
+import VizRepGeometryEditor from "./vizrep-editor/VizRepGeometryEditor";
 
 // Ports general-tab.{ts,html}. The shared base fields (uuid/name/description/
 // geometry/coordinates/rotation) plus a conditional variant sub-component
@@ -47,16 +48,6 @@ export default function GeneralTab() {
           maxLength={256}
         />
 
-        {/* Geometry */}
-        <BoundText
-          label="Geometry"
-          path="geometry"
-          obj={obj}
-          update={update}
-          multiline
-          rows={3}
-        />
-
         {/* 2D Coordinates */}
         <CoordFieldset legend="Coordinates 2D" base="coordinates_2d" obj={obj} update={update} />
 
@@ -78,6 +69,23 @@ export default function GeneralTab() {
 
         {/* Rotation */}
         <CoordFieldset legend="Rotation" base="rotation" obj={obj} update={update} />
+
+        {/* Geometry — after Rotation, before the type-specific variants (D4).
+            Full VizRep block (Monaco + Preview + canvas) only for
+            Class / RelationClass / Port (D1); every other type keeps the plain
+            geometry textarea, relocated here. */}
+        {type === "Class" || type === "RelationClass" || type === "Port" ? (
+          <VizRepGeometryEditor />
+        ) : (
+          <BoundText
+            label="Geometry"
+            path="geometry"
+            obj={obj}
+            update={update}
+            multiline
+            rows={3}
+          />
+        )}
       </Stack>
 
       {/* Type-specific variant sub-components */}
