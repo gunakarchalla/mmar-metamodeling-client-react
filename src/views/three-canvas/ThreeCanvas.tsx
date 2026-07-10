@@ -103,7 +103,7 @@ export default function ThreeCanvas() {
       ref={containerRef}
       className="three_canvas"
       id="container"
-      sx={{ position: "relative", width: "100%", height: "100%", bgcolor: "#1e1e1e", overflow: "hidden" }}
+      sx={{ position: "relative", width: "100%", height: "100%", bgcolor: "#ffffff", overflow: "hidden" }}
     />
   );
 }
