@@ -253,14 +253,19 @@ component from `TAB_COMPONENTS` for the rest.
 
 ### The General tab — [GeneralTab.tsx](src/views/middle-body/general-tab/GeneralTab.tsx) + [fields.tsx](src/views/middle-body/general-tab/fields.tsx)
 
-Shows the shared fields (uuid, name, description, geometry, coordinates) and then
-a **type-specific sub-component** (`GeneralTabClass`, `GeneralTabUser`, …) chosen
-by `type`. The fields are **controlled inputs** — a key React concept: the
-input's `value` comes *from* state and its `onChange` writes *back* to state.
-Here `BoundText` reads `obj.<path>` and calls `update(path, newValue)` →
-`updateSelectedField` in the store, which mutates the nested field in place and
+Shows the shared fields (uuid, name, description, coordinates, rotation), then the
+**geometry field**, then a **type-specific sub-component** (`GeneralTabClass`,
+`GeneralTabUser`, …) chosen by `type`. The fields are **controlled inputs** — a key
+React concept: the input's `value` comes *from* state and its `onChange` writes
+*back* to state. Here `BoundText` reads `obj.<path>` and calls `update(path, newValue)`
+→ `updateSelectedField` in the store, which mutates the nested field in place and
 `commit()`s. This is how React achieves two-way binding (which Aurelia gave you
 for free).
+
+The geometry slot is **conditional**: for `Class`, `RelationClass` and `Port` it
+renders the full [VizRep geometry editor](#the-vizrep-geometry-editor) (Monaco +
+Preview + 3D canvas); every other type keeps a plain geometry textarea. See the
+dedicated section below.
 
 ### The structural tabs + [ParentChildSelect.tsx](src/views/common/ParentChildSelect.tsx)
 
@@ -285,6 +290,151 @@ TopNavBar has the File/View/Edit/Diagram menus (intentionally **disabled stubs**
 (`triggerRefresh`), Save, admin-only Test, and Sign In/Out.
 [SignInSignUpDialog.tsx](src/views/auth/SignInSignUpDialog.tsx) does login/signup
 and fires a full refresh on success.
+
+---
+
+## The VizRep geometry editor
+
+Every meta object carries a `geometry` field: a string of JavaScript defining an
+`async function vizRep(gc)` that draws the object in 3D. For most types the General
+tab just shows that string in a textarea. For the three types the preview pipeline
+understands — **`Class`, `RelationClass`, `Port`** — it instead shows the *VizRep
+editor block*, ported from the sibling `mmar-vizrep-client-react`:
+
+```
+┌─ VizRepGeometryEditor ──────────────┐
+│  CodeEditor      (Monaco, 300px)    │
+│  PreviewButtons  (Preview,   44px)  │
+│  ThreeCanvas     (three.js, 400px)  │
+└─────────────────────────────────────┘
+```
+
+### The pieces
+
+| File | Role |
+|---|---|
+| [vizrep-editor/VizRepGeometryEditor.tsx](src/views/middle-body/general-tab/vizrep-editor/VizRepGeometryEditor.tsx) | The wrapper. Stacks the three children at fixed pixel heights and owns the load-on-selection effect. |
+| [code-editor/CodeEditor.tsx](src/views/code-editor/CodeEditor.tsx) | Monaco, bound to `editorStore.codeEditorValue`. |
+| [code-editor/monaco-setup.ts](src/views/code-editor/monaco-setup.ts) | Side-effect import that self-hosts Monaco and wires its web workers through Vite (`?worker`). No CDN. |
+| [preview-buttons/PreviewButtons.tsx](src/views/preview-buttons/PreviewButtons.tsx) | The single **Preview** button. |
+| [preview-buttons/preview-pipeline.ts](src/views/preview-buttons/preview-pipeline.ts) | `runPreview()` — builds a mock scene + instance, evaluates the geometry, draws. |
+| [three-canvas/ThreeCanvas.tsx](src/views/three-canvas/ThreeCanvas.tsx) | Mounts the singleton three.js engine into a container div. |
+| [src/engine/](src/engine/) | 19 files: the three.js renderer, scene, cameras, orbit controls and draw helpers. A set of module singletons behind an `engine` facade. |
+
+There is a **second store** for this feature,
+[editorStore.ts](src/resources/store/editorStore.ts), holding just the Monaco buffer.
+It is deliberately separate from `selectedObject.geometry`: the buffer can be
+beautified or half-typed without that implying a change to the object.
+
+### Event choreography
+
+These components do **not** talk through props. They talk over
+[event-bus.ts](src/resources/services/event-bus.ts), a tiny publish/subscribe shim
+carried over from the Aurelia original. Three flows matter:
+
+**1. You select an object** → `VizRepGeometryEditor`'s effect (keyed on
+`selectedObject?.uuid`, *not* the whole object) copies `geometry` into the editor
+buffer and publishes `changeCodeEditorCode`. `CodeEditor` beautifies **the buffer
+only** — selecting an object must never mark it as edited.
+
+**2. You type** → Monaco's `onChange` writes the value to *both* `editorStore`
+**and** `selectedObject.geometry` (via `updateSelectedField`). This is the
+**live-commit** rule: Save always persists exactly what the editor shows, so there
+is no "edited but never previewed → stale save" trap. It does not cause a cursor
+jump, because `@monaco-editor/react` skips `setValue` when the incoming `value`
+already equals the model's content.
+
+**3. You click Preview** →
+```
+PreviewButtons  ──publish("previewButtonClicked")──▶  CodeEditor
+                                                        │ flushes buffer onto object.geometry
+                                                        ▼
+                                              publish("updatedGeometryValue")
+                                                        │
+PreviewButtons ◀────────────────────────────────────────┘
+   └─▶ runPreview(): compile geometry → reset engine → build mock SceneInstance
+                    → create the Class/RelationClass/Port instance → draw
+```
+
+Two rules learned the hard way here:
+
+- **Compile before you reset.** `runPreview()` parses the geometry *before* it
+  touches engine state. Because of live-commit, a half-typed snippet is the normal
+  state of the buffer; if the engine were reset first, one bad keystroke would both
+  throw *and* wipe the last good render. Invalid geometry now logs an error and
+  leaves the canvas alone.
+- **Never subscribe to the bus with an `async` callback.** `publish()` calls each
+  listener synchronously and throws away the returned promise, so a rejection would
+  vanish as an unhandled rejection instead of a log line. Use
+  `() => void thing().catch(log)`.
+
+### Type dispatch: `type`, never `instanceof`
+
+`runPreview()` decides what to build by reading the store's `type` discriminator
+(`"Class"` / `"RelationClass"` / `"Port"`) — the same signal `GeneralTab` uses to
+decide whether to render the block at all, so the two can never disagree.
+
+It is tempting to write `selected instanceof Class`, and the vizrep client does
+exactly that. **It does not work here.** That client's backend service revives every
+response into a gds class (`data.map(Class.fromJS)`); this client's
+`backendService.fetchData()` pushes the raw parsed JSON straight into the store, and
+only `SceneType` and `SceneInstance` are ever run through `fromJS`. So the objects in
+`selectedObjectStore` are plain objects whose prototype is `Object.prototype`, and
+every `instanceof` check silently falls through.
+
+### Engine lifecycle
+
+The engine is a **page-lifetime singleton** — one `WebGLRenderer`, one scene, one set
+of cameras — but `ThreeCanvas` mounts and unmounts on *every* object, type and tab
+switch. `engine.mount(container)` therefore has to be idempotent and
+concurrency-safe:
+
+- The expensive `initiator.init()` runs **once per page**, guarded by a memoized
+  **promise** (not a boolean — a boolean set *after* `await init()` lets two racing
+  mounts both run the heavy branch, which duplicates the mock scene type, the orbit
+  controls and the window resize listener).
+- Every mount then just **re-attaches** the existing `renderer.domElement` and
+  restarts the render loop. The renderer is never recreated: browsers cap live WebGL
+  contexts at ~16 and silently drop the oldest.
+- `mount()` returns a monotonic **mount token**; `unmount(token)` is a no-op if a
+  newer mount has taken ownership. `ThreeCanvas` defers its cleanup behind the
+  in-flight mount promise, so init can't finish after unmount and leave an animation
+  loop running on a detached canvas — and, because React StrictMode reuses the same
+  container element, a stale cleanup can't detach the *newer* mount's canvas either.
+- A 1-second `setInterval` sets `globalObject.render = true`. The animator only draws
+  when that flag is set, and some update paths mutate meshes without setting it. Keep
+  the interval and its `clearInterval`.
+
+### Design decisions (D1–D12)
+
+Locked during the integration; the full table lives in the aggregator's `plan.md`.
+
+| # | Decision |
+|---|---|
+| D1 | Full block only for `Class` / `RelationClass` / `Port`; all other types keep a plain textarea. |
+| D2 | Live commit — every Monaco change writes `selectedObject.geometry`. |
+| D3 | No "Save to DB" button. The only save path is the top-bar Save / Ctrl+S. |
+| D4 | The geometry slot sits after the Rotation fieldset, before the type-specific fields. |
+| D5 | No AR button in the embedded canvas. |
+| D6 | Monaco theme `vs-dark`; canvas background `#1e1e1e`. |
+| D7 | Fixed pixel heights (300 / 44 / 400) — percentages collapse inside the scrolling tab. |
+| D8 | Beautify-on-load touches the editor buffer only, never the object. |
+| D9 | Dependency versions pinned to the vizrep client's. |
+| D10 | Monaco is self-hosted via `monaco-setup.ts`; no CDN. |
+| D11 | The vizrep AttributeWindow is not ported — `updateAttributeGui` / `removeAttributeGui` are published with no listeners. |
+| D12 | Dev-only test deps (`jsdom`, `@testing-library/react`) for the component suites. |
+
+### Gotchas
+
+- **Clicking any ObjectCard saves the previously selected object.** Combined with the
+  Preview flush (step 3 above), previewing an object and then navigating away
+  rewrites its `geometry` in the database with the beautified text — a whitespace-only
+  change, but a real write.
+- `geometry` is typed `Function` on the gds `MetaObject` but holds a **string** at
+  runtime. Read it with `?.toString()`, write it with an `as unknown as` cast. Don't
+  "fix" gds — it is shared with the server.
+- In tests, `three`, `@monaco-editor/react` and `monaco-setup` must be mocked. `three`
+  builds a `WebGLRenderer` at module scope and needs a real WebGL context.
 
 ---
 

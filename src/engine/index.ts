@@ -122,6 +122,12 @@ export const engine = {
     // will attach it to its own container. Attaching here would steal the canvas.
     if (token !== mountToken) return token;
 
+    // initCamera() unconditionally selects the 3D camera while initOrbitControls()
+    // honours globalObject.threeDimensional, so a toggle landing before init()
+    // settles leaves 2D controls driving the 3D camera. Re-applying the flag makes
+    // camera and controls agree on every mount; it is a no-op when they already do.
+    engine.setThreeDimensional(globalObject.threeDimensional);
+
     // init() already appended the canvas into `elementContainer`; for every later
     // mount this is the re-attach. Both paths converge here so there is exactly one
     // place that starts the render loop.

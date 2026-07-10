@@ -28,6 +28,16 @@ const mocks = vi.hoisted(() => ({
       setSize: ReturnType<typeof vi.fn>;
       setAnimationLoop: ReturnType<typeof vi.fn>;
     },
+    // Cameras / controls as plain strings: identity is all setThreeDimensional
+    // picks between, and it reads far better than two three.js instances in a diff.
+    threeDimensional: true,
+    camera: "" as string,
+    normalCamera: "" as string,
+    normalCamera2d: "camera2d",
+    normalCamera3d: "camera3d",
+    orbitControls: "" as string,
+    orbitControls2d: "controls2d",
+    orbitControls3d: "controls3d",
   },
 }));
 
@@ -89,6 +99,10 @@ beforeEach(() => {
     setSize: vi.fn(),
     setAnimationLoop: vi.fn(),
   };
+  mocks.globalObject.threeDimensional = true;
+  mocks.globalObject.camera = "";
+  mocks.globalObject.normalCamera = "";
+  mocks.globalObject.orbitControls = "";
 });
 
 describe("engine.mount — one-time init", () => {
@@ -213,5 +227,64 @@ describe("engine — StrictMode double-mount", () => {
     expect(mocks.initiator.init).toHaveBeenCalledTimes(1);
     expect(mocks.globalObject.renderer.domElement.parentElement).toBe(el);
     expect(mocks.globalObject.renderer.setAnimationLoop).not.toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("engine.setThreeDimensional — 2D/3D preview toggle", () => {
+  it("does nothing but record the flag before the engine is initialised", async () => {
+    const engine = await loadEngine();
+    engine.setThreeDimensional(false);
+
+    expect(mocks.globalObject.threeDimensional).toBe(false);
+    // No cameras exist yet, so it must not have picked one.
+    expect(mocks.globalObject.camera).toBe("");
+    expect(mocks.globalObject.orbitControls).toBe("");
+  });
+
+  it("swaps camera and orbit controls together, and asks for a redraw", async () => {
+    const engine = await loadEngine();
+    await engine.mount(makeContainer());
+
+    mocks.globalObject.render = false;
+    engine.setThreeDimensional(false);
+    expect(mocks.globalObject.camera).toBe("camera2d");
+    expect(mocks.globalObject.normalCamera).toBe("camera2d");
+    expect(mocks.globalObject.orbitControls).toBe("controls2d");
+    expect(mocks.globalObject.render).toBe(true);
+
+    engine.setThreeDimensional(true);
+    expect(mocks.globalObject.camera).toBe("camera3d");
+    expect(mocks.globalObject.orbitControls).toBe("controls3d");
+  });
+
+  it("reconciles the camera with a flag toggled while init() was still in flight", async () => {
+    // The regression this guards: initiator.initCamera() always selects the 3D
+    // camera, while initOrbitControls() honours the flag. A toggle landing in that
+    // window used to leave 2D controls driving the 3D camera — the preview stayed
+    // perspective while the mouse behaved orthographic. mount() re-applies the flag.
+    const gate = deferred();
+    mocks.initiator.init.mockImplementation(() => gate.promise);
+
+    const engine = await loadEngine();
+    const mounted = engine.mount(makeContainer());
+    engine.setThreeDimensional(false); // user flips to 2D before init settles
+
+    gate.resolve();
+    await mounted;
+
+    expect(mocks.globalObject.camera).toBe("camera2d");
+    expect(mocks.globalObject.orbitControls).toBe("controls2d");
+  });
+
+  it("preserves the chosen dimension across a remount (object switch)", async () => {
+    const engine = await loadEngine();
+    const tokenA = await engine.mount(makeContainer());
+    engine.setThreeDimensional(false);
+    engine.unmount(tokenA);
+
+    await engine.mount(makeContainer());
+
+    expect(mocks.globalObject.camera).toBe("camera2d");
+    expect(mocks.globalObject.orbitControls).toBe("controls2d");
   });
 });
