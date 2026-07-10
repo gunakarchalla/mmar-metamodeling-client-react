@@ -17,11 +17,15 @@ const toggle = () =>
 const mocks = vi.hoisted(() => ({
   engine: { setThreeDimensional: vi.fn() },
   runPreview: vi.fn(() => Promise.resolve()),
+  previewSelectedObject: vi.fn(() => Promise.resolve()),
   logger: { log: vi.fn() },
 }));
 
 vi.mock("@/engine", () => ({ engine: mocks.engine }));
-vi.mock("@/views/preview-buttons/preview-pipeline", () => ({ runPreview: mocks.runPreview }));
+vi.mock("@/views/preview-buttons/preview-pipeline", () => ({
+  runPreview: mocks.runPreview,
+  previewSelectedObject: mocks.previewSelectedObject,
+}));
 vi.mock("@/resources/services/logger", () => ({ logger: mocks.logger }));
 
 import PreviewButtons from "./PreviewButtons";
@@ -59,6 +63,35 @@ describe("PreviewButtons", () => {
       eventBus.publish("updatedGeometryValue");
     });
     expect(mocks.logger.log).toHaveBeenCalledWith(expect.stringContaining("bad geometry"), "error");
+  });
+
+  it("redraws the canvas when the selection changes", async () => {
+    render(<PreviewButtons />);
+    await act(async () => {
+      eventBus.publish("previewSelectedObject");
+    });
+    expect(mocks.previewSelectedObject).toHaveBeenCalledTimes(1);
+    // The selection path must not go through the Preview button's flush, which would
+    // write the beautified buffer back onto the object (D8: selecting must not dirty).
+    expect(mocks.runPreview).not.toHaveBeenCalled();
+  });
+
+  it("logs instead of rejecting when a selection-driven redraw throws", async () => {
+    mocks.previewSelectedObject.mockRejectedValueOnce(new Error("no scene type"));
+    render(<PreviewButtons />);
+    await act(async () => {
+      eventBus.publish("previewSelectedObject");
+    });
+    expect(mocks.logger.log).toHaveBeenCalledWith(expect.stringContaining("no scene type"), "error");
+  });
+
+  it("stops redrawing on selection once unmounted", async () => {
+    const { unmount } = render(<PreviewButtons />);
+    unmount();
+    await act(async () => {
+      eventBus.publish("previewSelectedObject");
+    });
+    expect(mocks.previewSelectedObject).not.toHaveBeenCalled();
   });
 
   it("starts in 3D, matching the engine default", () => {

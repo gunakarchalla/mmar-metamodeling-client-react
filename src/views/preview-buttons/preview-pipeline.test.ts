@@ -23,11 +23,29 @@ const mocks = vi.hoisted(() => {
     selectedTab: 0,
     render: false,
   };
+  // Resolved by hand so a test can hold the engine "not ready" and observe what the
+  // selection path does while ThreeCanvas is still mounting.
+  let releaseReady: () => void = () => {};
+  let ready = Promise.resolve();
   return {
     selected: null as unknown,
     selectedType: null as string | null,
     scene,
     globalObject,
+    engine: {
+      whenReady: vi.fn(() => ready),
+      /** Park every whenReady() awaiter until release() — the "still mounting" state. */
+      holdReady() {
+        ready = new Promise<void>((resolve) => (releaseReady = resolve));
+      },
+      release() {
+        releaseReady();
+      },
+      reset() {
+        releaseReady();
+        ready = Promise.resolve();
+      },
+    },
     logger: { log: vi.fn() },
     graphicContext: {
       resetInstance: vi.fn(() => Promise.resolve()),
@@ -66,6 +84,7 @@ vi.mock("three", () => ({
 vi.mock("three/examples/jsm/lines/Line2.js", () => ({ Line2: class {} }));
 
 vi.mock("@/engine", () => ({
+  engine: mocks.engine,
   globalObject: mocks.globalObject,
   graphicContext: mocks.graphicContext,
   // runPreview nulls globalObject.scene during the reset; the real sceneInit rebuilds it.
@@ -100,7 +119,7 @@ vi.mock("@/resources/store/selectedObjectStore", () => ({
   },
 }));
 
-import { runPreview } from "./preview-pipeline";
+import { runPreview, clearPreview, previewSelectedObject } from "./preview-pipeline";
 
 /**
  * The production shape. `backendService.fetchData()` pushes raw parsed JSON into the
@@ -123,6 +142,9 @@ beforeEach(() => {
   mocks.selectedType = null;
   mocks.globalObject.sceneTypes = [{ uuid: "mock-scene-type" }];
   mocks.globalObject.scene = mocks.scene;
+  mocks.globalObject.render = false;
+  // A test that parked whenReady() must not leave the next one parked forever.
+  mocks.engine.reset();
 });
 
 describe("runPreview — geometry guards", () => {
@@ -266,5 +288,98 @@ describe("runPreview — type dispatch (P6 regression)", () => {
       "Engine not ready for preview (canvas not mounted)",
       "error",
     );
+  });
+});
+
+/**
+ * The selection path. Before it existed the canvas only ever redrew on a Preview click:
+ * the first selection showed an empty canvas, and switching cards left the *previous*
+ * object's render on screen while every other field had already moved on.
+ */
+describe("previewSelectedObject — the canvas follows the selection", () => {
+  it("draws the newly selected object", async () => {
+    selectPlain("Class", "(gc) => gc");
+
+    await previewSelectedObject();
+
+    expect(mocks.instanceCreationHandler.createClassInstance).toHaveBeenCalledTimes(1);
+    expect(mocks.graphicContext.drawVizRep).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for the engine's init before drawing (the initial-selection case)", async () => {
+    // ThreeCanvas is a child, so its mount() has started but not settled when the parent
+    // publishes. Drawing now would bail out on the missing mock SceneType.
+    mocks.engine.holdReady();
+    selectPlain("Class", "(gc) => gc");
+
+    const drawn = previewSelectedObject();
+    await Promise.resolve();
+    expect(mocks.graphicContext.drawVizRep).not.toHaveBeenCalled();
+
+    mocks.engine.release();
+    await drawn;
+    expect(mocks.graphicContext.drawVizRep).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the canvas when the newly selected object has no geometry", async () => {
+    // Distinct from runPreview's "keep the last good preview": that protects a half-typed
+    // buffer on the *same* object. Here the empty geometry belongs to a different object,
+    // so leaving the previous render up would attribute it to the wrong class.
+    selectPlain("Class", "");
+
+    await previewSelectedObject();
+
+    expect(mocks.graphicContext.resetInstance).toHaveBeenCalled();
+    expect(mocks.graphicContext.drawVizRep).not.toHaveBeenCalled();
+    expect(mocks.globalObject.render).toBe(true);
+  });
+
+  it("lets the newest selection win when cards are clicked faster than a build", async () => {
+    mocks.engine.holdReady();
+    selectPlain("Class", "(gc) => gc");
+    const stale = previewSelectedObject();
+
+    // Second card clicked while the first build is still parked on whenReady().
+    selectPlain("RelationClass", "(gc) => gc");
+    const fresh = previewSelectedObject();
+
+    mocks.engine.release();
+    await Promise.all([stale, fresh]);
+
+    // The superseded build must not draw at all: both write the one shared globalObject,
+    // so whichever finishes last owns the canvas — and that need not be the last click.
+    expect(mocks.instanceCreationHandler.createClassInstance).not.toHaveBeenCalled();
+    expect(mocks.instanceCreationHandler.createRelationclassInstance).toHaveBeenCalledTimes(1);
+    expect(mocks.graphicContext.drawVizRep_rel).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps serving later selections after a build fails", async () => {
+    mocks.graphicContext.drawVizRep.mockRejectedValueOnce(new Error("webgl blew up"));
+    selectPlain("Class", "(gc) => gc");
+    await expect(previewSelectedObject()).rejects.toThrow("webgl blew up");
+
+    selectPlain("Class", "(gc) => gc");
+    await previewSelectedObject();
+
+    expect(mocks.graphicContext.drawVizRep).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("clearPreview", () => {
+  it("rebuilds an empty mock scene", async () => {
+    await clearPreview();
+
+    expect(mocks.graphicContext.resetInstance).toHaveBeenCalled();
+    expect(mocks.globalObject.tabContext).toEqual([]);
+    expect(mocks.graphicContext.runVizRepFunction).not.toHaveBeenCalled();
+    expect(mocks.globalObject.render).toBe(true);
+  });
+
+  it("is a no-op before the engine has mounted", async () => {
+    mocks.globalObject.sceneTypes = [];
+
+    await clearPreview();
+
+    expect(mocks.graphicContext.resetInstance).not.toHaveBeenCalled();
   });
 });

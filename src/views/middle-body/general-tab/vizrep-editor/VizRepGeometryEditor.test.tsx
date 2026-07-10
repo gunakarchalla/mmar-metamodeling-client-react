@@ -91,6 +91,18 @@ describe("VizRepGeometryEditor — load on selection", () => {
     expect(buffer()).toBe("second");
   });
 
+  it("asks for a redraw on the first selection and on every switch", () => {
+    const publish = vi.spyOn(eventBus, "publish");
+    select(makeClass("a", "first"));
+    render(<VizRepGeometryEditor />);
+    expect(publish).toHaveBeenCalledWith("previewSelectedObject");
+
+    publish.mockClear();
+    act(() => select(makeClass("b", "second")));
+    // Without this the canvas keeps rendering object "a" while every other field shows "b".
+    expect(publish).toHaveBeenCalledWith("previewSelectedObject");
+  });
+
   it("does NOT reload while typing — a revision bump on the same uuid is ignored", () => {
     // D2 rerefs selectedObject on every keystroke. If the effect keyed on the object
     // it would fire here, overwrite the buffer with the committed value and re-beautify

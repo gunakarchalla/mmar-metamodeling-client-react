@@ -10,6 +10,10 @@ import type { AttributeInstance } from "@gds/models/instance/Instance_attributes
  * Channels in use (see plan.md §6):
  *   login                                  -> boolean  (login success)
  *   previewButtonClicked                   -> void
+ *   previewSelectedObject                  -> void     (not in plan §6; published by
+ *                                                       VizRepGeometryEditor when the
+ *                                                       selection changes, so the canvas
+ *                                                       follows the selected object)
  *   changeCodeEditorCode                   -> void     (beautify + setValue)
  *   updatedGeometryValue                   -> void
  *   checkForVizRepUpdate                   -> void
@@ -25,6 +29,7 @@ import type { AttributeInstance } from "@gds/models/instance/Instance_attributes
 export interface EventPayloads {
   login: boolean;
   previewButtonClicked: void;
+  previewSelectedObject: void;
   changeCodeEditorCode: void;
   updatedGeometryValue: void;
   checkForVizRepUpdate: void;

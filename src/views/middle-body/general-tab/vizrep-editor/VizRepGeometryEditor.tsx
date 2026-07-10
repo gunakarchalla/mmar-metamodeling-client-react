@@ -31,6 +31,15 @@ export default function VizRepGeometryEditor() {
     // changeCodeEditorCode -> CodeEditor beautifies the buffer only (D8), so
     // selecting an object must not mark it changed.
     eventBus.publish("changeCodeEditorCode");
+    // previewSelectedObject -> PreviewButtons redraws the canvas for this object
+    // (waiting for the engine's init first, which is why the initial selection works
+    // even though ThreeCanvas is still mounting below us). Without it the canvas kept
+    // whatever the last Preview click had drawn.
+    //
+    // Published rather than called directly: the pipeline pulls in the engine, whose
+    // module scope constructs a WebGLRenderer, and this wrapper is rendered (and
+    // tested) in places that have no WebGL context.
+    eventBus.publish("previewSelectedObject");
   }, [selectedUuid]);
 
   return (

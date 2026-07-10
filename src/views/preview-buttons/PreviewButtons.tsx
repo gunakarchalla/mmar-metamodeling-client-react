@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Box, Button, FormControlLabel, Switch, Tooltip } from "@mui/material";
 import { eventBus } from "@/resources/services/event-bus";
-import { runPreview } from "@/views/preview-buttons/preview-pipeline";
+import { runPreview, previewSelectedObject } from "@/views/preview-buttons/preview-pipeline";
 import { logger } from "@/resources/services/logger";
 import { describeError } from "@/resources/util/describe-error";
 import { useEditorStore } from "@/resources/store/editorStore";
@@ -32,6 +32,21 @@ export default function PreviewButtons() {
     // throws while executing, a missing mock instance, WebGL errors.
     const sub = eventBus.subscribe("updatedGeometryValue", () => {
       void runPreview().catch((err: unknown) => {
+        logger.log(`Preview failed: ${describeError(err)}`, "error");
+      });
+    });
+    return () => sub.dispose();
+  }, []);
+
+  // previewSelectedObject (published by VizRepGeometryEditor when the selection
+  // changes) -> redraw the canvas for the newly selected object. It waits for the
+  // engine's init, so it also covers the very first selection, where the canvas is
+  // still mounting. The pipeline reads the geometry straight off the selected object,
+  // so — unlike the Preview button — this never writes the (beautified) editor buffer
+  // back onto the object: selecting must not dirty it (D8).
+  useEffect(() => {
+    const sub = eventBus.subscribe("previewSelectedObject", () => {
+      void previewSelectedObject().catch((err: unknown) => {
         logger.log(`Preview failed: ${describeError(err)}`, "error");
       });
     });

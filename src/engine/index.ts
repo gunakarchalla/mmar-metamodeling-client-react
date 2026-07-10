@@ -76,6 +76,24 @@ export {
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
+// Resolves once the one-time init has completed, i.e. once the mock SceneType,
+// the scene and the cameras exist and the render loop is running.
+//
+// Callers outside ThreeCanvas hold no mount token and cannot await the mount
+// promise, but they still must not touch engine state before init: the preview
+// pipeline needs globalObject.sceneTypes[0], which init creates. The selection
+// -> preview trigger fires from a parent effect, and React runs child effects
+// first, so ThreeCanvas has always *started* the mount by then — but mount() is
+// async, so "started" is not "ready". This promise is that missing edge.
+//
+// It never rejects: a failed init leaves it pending until a later mount retries and
+// succeeds. Awaiters therefore stay parked while the canvas is dead, which is the
+// intended behaviour — there is nothing for them to draw into.
+let signalReady: () => void;
+const readyPromise = new Promise<void>((resolve) => {
+  signalReady = resolve;
+});
+
 // Monotonic mount token. Every mount() takes the next token and becomes the engine's
 // owner. An attach or an unmount whose token is no longer current has been superseded
 // by a newer mount and must not touch the renderer.
@@ -110,6 +128,7 @@ export const engine = {
         // without XR (the ARButton just reports "AR NOT SUPPORTED").
         arInitiator.enableXR();
         initialized = true;
+        signalReady();
       })().catch((err: unknown) => {
         // Let a later mount retry a failed init rather than wedging the engine.
         initPromise = null;
@@ -204,6 +223,16 @@ export const engine = {
     if (dom.parentElement) {
       dom.parentElement.removeChild(dom);
     }
+  },
+
+  /**
+   * Await the one-time init. Resolves immediately once it has completed, and stays
+   * pending until some ThreeCanvas has mounted successfully. Use this before reading
+   * or mutating engine state (scene, cameras, globalObject.sceneTypes) from anywhere
+   * that did not itself call mount().
+   */
+  whenReady(): Promise<void> {
+    return readyPromise;
   },
 
   /** Test seam: has the heavy one-time init completed? */

@@ -5,8 +5,10 @@ import {
   RelationclassInstance,
   PortInstance,
   SceneInstance,
+  SceneType,
 } from "@gds";
 import {
+  engine,
   globalObject,
   graphicContext,
   sceneInitiator,
@@ -25,6 +27,56 @@ import { describeError } from "@/resources/util/describe-error";
 // expression that needs one eval pass before it is handed to parseMetaFunction.
 function parseObj(obj: string): string {
   return Function('"use strict";return (' + obj + ")")();
+}
+
+/** The geometry a meta object carries, as a string (gds types it `Function`, §4.4). */
+function geometryOf(object: { geometry?: unknown } | null | undefined): string {
+  return (object?.geometry as string | undefined)?.toString() ?? "";
+}
+
+/**
+ * Tear the engine's instance state down and rebuild an empty mock scene around
+ * `sceneType` (the old `object-card.onButtonClicked` reset + `initTree`). Leaves the
+ * canvas showing the bare grid; the caller draws into it.
+ */
+async function resetPreviewScene(sceneType: SceneType): Promise<SceneInstance> {
+  await graphicContext.resetInstance();
+  globalObject.current_class_instance = null as unknown as ClassInstance;
+  globalObject.current_port_instance = null as unknown as PortInstance;
+  globalObject.scene = null as unknown as THREE.Scene;
+  globalObject.sceneTree = null as unknown as typeof globalObject.sceneTree;
+  globalObject.tabContext = [];
+
+  const sceneInstance = new SceneInstance(instanceCreationHandler.create_UUID(), sceneType.uuid);
+  sceneInstance.name = "MockSceneInstance";
+  logger.log(`SceneInstance with name ${sceneInstance.name} created`, "info");
+
+  await sceneInitiator.sceneInit();
+  await instanceUtility.createTabContextSceneInstance(sceneInstance);
+  globalObject.selectedTab = 0;
+
+  // --- mock scene tree (object-card.initTree) ---
+  (sceneType as unknown as { children: SceneInstance[] }).children = [sceneInstance];
+  globalObject.sceneTypes = [sceneType];
+  globalObject.sceneTree = [sceneType] as unknown as typeof globalObject.sceneTree;
+
+  return sceneInstance;
+}
+
+/**
+ * Empty the canvas back to the bare grid.
+ *
+ * `runPreview` deliberately returns *before* the reset when the geometry does not
+ * compile, so the last good render survives a half-typed keystroke (D2 live commit).
+ * That is right while typing and wrong on a selection change: the previous object's
+ * render would linger under the new object's name. So the selection path clears
+ * explicitly when the newly selected object has nothing to draw.
+ */
+export async function clearPreview(): Promise<void> {
+  if (globalObject.sceneTypes.length === 0) return;
+  await resetPreviewScene(globalObject.sceneTypes[0]);
+  globalObject.render = true;
+  eventBus.publish("removeAttributeGui");
 }
 
 /**
@@ -80,7 +132,7 @@ export async function runPreview(): Promise<void> {
   // keystroke (D2), so a half-typed snippet is the normal state of the buffer. If we
   // reset first and parse second, one bad character both throws and wipes the last
   // good preview. Parsing first leaves the canvas showing the last good render.
-  const rawGeometry = (selected.geometry as unknown as string | undefined)?.toString() ?? "";
+  const rawGeometry = geometryOf(selected);
   if (rawGeometry.trim().length === 0) {
     logger.log("Cannot preview: geometry is empty", "error");
     return;
@@ -111,27 +163,8 @@ export async function runPreview(): Promise<void> {
   sceneType.relationclasses = store.getRelationClasses();
   sceneType.ports = store.getPorts();
 
-  // --- reset engine + current-instance state (object-card.onButtonClicked) ---
-  await graphicContext.resetInstance();
-  globalObject.current_class_instance = null as unknown as ClassInstance;
-  globalObject.current_port_instance = null as unknown as PortInstance;
-  globalObject.scene = null as unknown as THREE.Scene;
-  globalObject.sceneTree = null as unknown as typeof globalObject.sceneTree;
-  globalObject.tabContext = [];
-
-  // --- create a fresh mock scene instance, (re)init the scene + tab context ---
-  const sceneInstance = new SceneInstance(instanceCreationHandler.create_UUID(), sceneType.uuid);
-  sceneInstance.name = "MockSceneInstance";
-  logger.log(`SceneInstance with name ${sceneInstance.name} created`, "info");
-
-  await sceneInitiator.sceneInit();
-  await instanceUtility.createTabContextSceneInstance(sceneInstance);
-  globalObject.selectedTab = 0;
-
-  // --- mock scene tree (object-card.initTree) ---
-  (sceneType as unknown as { children: SceneInstance[] }).children = [sceneInstance];
-  globalObject.sceneTypes = [sceneType];
-  globalObject.sceneTree = [sceneType] as unknown as typeof globalObject.sceneTree;
+  // --- reset engine state, then rebuild an empty mock scene + tab context ---
+  await resetPreviewScene(sceneType);
 
   // --- create the instance for the selected meta object ---
   let instance: ClassInstance | RelationclassInstance | PortInstance;
@@ -231,4 +264,50 @@ export async function runPreview(): Promise<void> {
   setTimeout(() => {
     eventBus.publish("updateAttributeGui");
   }, 100);
+}
+
+// Selection changes faster than a preview builds: every step of runPreview is async
+// (createClassInstance, runVizRepFunction, the GLTF/troika loads inside drawVizRep), so
+// clicking three cards in a row would otherwise interleave three builds over the one
+// shared globalObject — the last render to finish wins, and it is not necessarily the
+// last object clicked. `generation` makes a superseded build drop out at its next await
+// point; the queue keeps two builds from ever running concurrently.
+let generation = 0;
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Draw the currently selected object into the preview canvas — the selection-change
+ * counterpart of the Preview button.
+ *
+ * Without this the canvas only ever changed when Preview was clicked: selecting an
+ * object showed an empty canvas, and selecting a second object left the first one's
+ * render on screen while every other field switched.
+ *
+ * Reads the selection at draw time rather than taking it as an argument, so a build
+ * that waited in the queue picks up the newest object, never a stale one.
+ */
+export function previewSelectedObject(): Promise<void> {
+  const mine = ++generation;
+
+  const run = queue.then(async () => {
+    if (mine !== generation) return;
+    // globalObject.sceneTypes[0] (the mock SceneType) only exists after the engine's
+    // one-time init. On the very first selection ThreeCanvas has started mounting but
+    // not finished, so without this await runPreview would bail out with "Engine not
+    // ready" and the canvas would stay empty until the user clicked Preview.
+    await engine.whenReady();
+    if (mine !== generation) return;
+
+    const selected = useSelectedObjectStore.getState().getSelectedObject();
+    if (geometryOf(selected).trim().length === 0) {
+      await clearPreview();
+      return;
+    }
+    await runPreview();
+  });
+
+  // The queue must survive a failed build, so it chains the *caught* promise; the
+  // caller still sees the rejection through the returned one.
+  queue = run.catch(() => {});
+  return run;
 }
