@@ -9,8 +9,11 @@ export default defineConfig({
     },
   },
   test: {
+    // Node stays the default so the existing store/service suites are unaffected.
+    // The component tests opt into jsdom per-file with a `@vitest-environment jsdom`
+    // docblock — cheaper than a global switch, and it keeps the blast radius small.
     environment: "node",
     setupFiles: ["./src/test-setup.ts"],
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 });

@@ -22,6 +22,7 @@ import { instanceUtility } from "@/resources/services/instance-utility";
 import { logger } from "@/resources/services/logger";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { eventBus } from "@/resources/services/event-bus";
+import { describeError } from "@/resources/util/describe-error";
 
 // `parseObj` from the old object-card: the geometry string may itself be a JS
 // expression that needs one eval pass before it is handed to parseMetaFunction.
@@ -57,6 +58,32 @@ export async function runPreview(): Promise<void> {
     return;
   }
   const sceneType = globalObject.sceneTypes[0];
+
+  // Compile the user-authored geometry BEFORE touching engine state.
+  //
+  // Both `parseObj` and `parseMetaFunction` are pure `new Function(...)` evaluations
+  // (they build the VizRep function; `runVizRepFunction` is what executes it), so
+  // hoisting them above the reset below is behaviour-preserving on the happy path.
+  // On the failure path it is the whole point: geometry is live-committed on every
+  // keystroke (D2), so a half-typed snippet is the normal state of the buffer. If we
+  // reset first and parse second, one bad character both throws and wipes the last
+  // good preview. Parsing first leaves the canvas showing the last good render.
+  const rawGeometry = (selected.geometry as unknown as string | undefined)?.toString() ?? "";
+  if (rawGeometry.trim().length === 0) {
+    logger.log("Cannot preview: geometry is empty", "error");
+    return;
+  }
+
+  // Typed `string` to match `graphicContext.runVizRepFunction(vizRepCode: string)`,
+  // which in fact receives the compiled function object — a pre-existing signature
+  // lie in the engine, preserved here rather than "fixed".
+  let metaFunction: string;
+  try {
+    metaFunction = await metaUtility.parseMetaFunction(parseObj(rawGeometry));
+  } catch (err: unknown) {
+    logger.log(`Cannot preview: geometry is not valid JavaScript — ${describeError(err)}`, "error");
+    return;
+  }
 
   // Bridge the loaded meta objects (selectedObjectStore) onto the mock SceneType.
   // Every meta lookup used by the pipeline and the attribute window —
@@ -131,10 +158,7 @@ export async function runPreview(): Promise<void> {
     return;
   }
 
-  // --- evaluate the dynamic VizRep function ---
-  const geometryString = parseObj(selected.geometry as unknown as string);
-  const metaFunction = await metaUtility.parseMetaFunction(geometryString);
-
+  // --- evaluate the dynamic VizRep function (compiled above, before the reset) ---
   await graphicContext.resetInstance();
   await graphicContext.runVizRepFunction(metaFunction);
 

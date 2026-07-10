@@ -60,36 +60,80 @@ export {
 };
 
 // init() is expensive (builds cameras / scene / controls / mock objects) and must
-// run exactly ONCE for the lifetime of the singleton engine. React StrictMode
-// double-invokes effects in dev (mount -> unmount -> mount); guarding with this
-// flag keeps the second mount a cheap re-attach instead of a duplicate init.
+// run exactly ONCE for the lifetime of the singleton engine.
+//
+// A plain `let initialized = false` set *after* `await initiator.init()` does not
+// hold: two mounts that race the same in-flight init both observe `false` and both
+// run the heavy branch. In the metamodeling client that is the normal case, not an
+// edge case — ThreeCanvas mounts/unmounts on every object/type/tab switch (plan
+// §4.5), and StrictMode double-invokes the effect in dev. A duplicate init pushes a
+// second MockSceneType, adds a second mousePointer3d to the scene, builds a second
+// pair of OrbitControls over the same canvas, and re-registers the window resize
+// listener — all unremovable.
+//
+// So we memoize the init *promise* (not a boolean). Concurrent mounts await the
+// same init; only the first creates it.
+let initPromise: Promise<void> | null = null;
 let initialized = false;
+
+// Monotonic mount token. Every mount() takes the next token and becomes the engine's
+// owner. An attach or an unmount whose token is no longer current has been superseded
+// by a newer mount and must not touch the renderer.
+//
+// This is what makes the async mount/sync unmount interleaving safe. StrictMode's
+// mount -> unmount -> mount reuses the *same* container element, so ownership cannot
+// be decided by comparing elements; and because unmount is deferred until the
+// in-flight mount settles (see ThreeCanvas), a stale cleanup would otherwise detach
+// the canvas that the *newer* mount just attached.
+let mountToken = 0;
 
 export const engine = {
   /**
-   * Boot (or re-attach) the engine into `container`. Idempotent: the heavy
-   * `initiator.init()` + `initEventListeners()` run only on the first mount;
-   * subsequent mounts (e.g. after a StrictMode unmount) re-attach the existing
-   * canvas and restart the render loop.
+   * Boot (or re-attach) the engine into `container`, and return the mount token
+   * identifying this mount. Pass that token to `unmount(token)` so a superseded
+   * cleanup becomes a no-op.
+   *
+   * Idempotent and concurrency-safe: the heavy `initiator.init()` +
+   * `initEventListeners()` run at most once per page life; every mount (including
+   * the first) then ensures the singleton canvas is attached to `container` with a
+   * running render loop. The renderer is never recreated — only re-attached.
    */
-  async mount(container: HTMLElement): Promise<void> {
+  async mount(container: HTMLElement): Promise<number> {
+    const token = ++mountToken;
     globalObject.elementContainer = container;
 
-    if (!initialized) {
-      await initiator.init();
-      await initiator.initEventListeners();
-      // Phase 11: turn on WebXR + wire session start/end. Harmless on devices
-      // without XR (the ARButton just reports "AR NOT SUPPORTED").
-      arInitiator.enableXR();
-      initialized = true;
-    } else {
-      if (globalObject.renderer.domElement.parentElement !== container) {
-        container.appendChild(globalObject.renderer.domElement);
-      }
-      globalObject.renderer.setSize(container.clientWidth, container.clientHeight, true);
-      globalObject.renderer.setAnimationLoop(arInitiator.render.bind(arInitiator));
-      globalObject.render = true;
+    if (!initPromise) {
+      initPromise = (async () => {
+        await initiator.init();
+        await initiator.initEventListeners();
+        // Phase 11: turn on WebXR + wire session start/end. Harmless on devices
+        // without XR (the ARButton just reports "AR NOT SUPPORTED").
+        arInitiator.enableXR();
+        initialized = true;
+      })().catch((err: unknown) => {
+        // Let a later mount retry a failed init rather than wedging the engine.
+        initPromise = null;
+        throw err;
+      });
     }
+    await initPromise;
+
+    // Superseded while init was in flight: the newer mount owns the renderer and
+    // will attach it to its own container. Attaching here would steal the canvas.
+    if (token !== mountToken) return token;
+
+    // init() already appended the canvas into `elementContainer`; for every later
+    // mount this is the re-attach. Both paths converge here so there is exactly one
+    // place that starts the render loop.
+    const dom = globalObject.renderer.domElement;
+    if (dom.parentElement !== container) {
+      container.appendChild(dom);
+    }
+    globalObject.renderer.setSize(container.clientWidth, container.clientHeight, true);
+    globalObject.renderer.setAnimationLoop(arInitiator.render.bind(arInitiator));
+    globalObject.render = true;
+
+    return token;
   },
 
   /**
@@ -134,13 +178,30 @@ export const engine = {
 
   /**
    * Stop the render loop and detach the canvas from the DOM. The singleton scene /
-   * cameras / controls are preserved so a later `mount()` is a cheap re-attach.
+   * cameras / controls / renderer are preserved so a later `mount()` is a cheap
+   * re-attach — never a recreate (a recreated WebGLRenderer would leak its context;
+   * browsers cap live contexts at ~16 and start dropping the oldest).
+   *
+   * Pass the token returned by the matching `mount()`. If a newer mount has since
+   * taken ownership this call is a no-op, which is what makes a cleanup that was
+   * deferred behind an in-flight mount safe. Calling with no token forces the
+   * detach unconditionally.
    */
-  unmount(): void {
+  unmount(token?: number): void {
+    if (token !== undefined && token !== mountToken) return;
+
+    // Nothing to detach if init never ran (mount rejected, or unmount raced an init
+    // that failed) — the renderer exists from module load, but the loop was never
+    // started and the canvas was never appended.
     globalObject.renderer.setAnimationLoop(null);
     const dom = globalObject.renderer.domElement;
     if (dom.parentElement) {
       dom.parentElement.removeChild(dom);
     }
+  },
+
+  /** Test seam: has the heavy one-time init completed? */
+  get isInitialized(): boolean {
+    return initialized;
   },
 };

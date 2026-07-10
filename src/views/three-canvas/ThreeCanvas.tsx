@@ -3,6 +3,8 @@ import { Box } from "@mui/material";
 import type { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { engine, resize, globalObject, lineUpdateService } from "@/engine";
 import { instanceUtility } from "@/resources/services/instance-utility";
+import { logger } from "@/resources/services/logger";
+import { describeError } from "@/resources/util/describe-error";
 
 // Port of the old three-canvas `checkForLineToUpdate()`: keep the open scene's
 // relation line glued to its endpoints on each steady-render tick.
@@ -26,6 +28,15 @@ async function checkForLineToUpdate() {
 // engine.mount/unmount are idempotent so StrictMode's double-invoke is safe.
 // A ResizeObserver keeps the renderer + cameras in sync with the container size.
 //
+// Unlike vizrep — where this component lived for the whole page life — here it
+// mounts and unmounts on every object / type / tab switch (plan §4.5). Two
+// consequences drive the code below:
+//   1. The cleanup must wait for an in-flight engine.mount() before detaching,
+//      otherwise init() completes after unmount and leaves a render loop running
+//      against a detached canvas.
+//   2. A cleanup that lands after a newer mount has taken over must not detach
+//      that newer mount's canvas — hence the mount token.
+//
 // The AR button (engine.createARButton()) is intentionally omitted here
 // (decision D5): AR is a vizrep-only extra and an "AR NOT SUPPORTED" overlay
 // inside a form is noise.
@@ -39,14 +50,23 @@ export default function ThreeCanvas() {
     let disposed = false;
     let observer: ResizeObserver | undefined;
 
-    engine.mount(el).then(() => {
-      if (disposed) return;
-      // Match the renderer/cameras to the actual container size, then keep them
-      // synced (the ResizeObserver replaces the old window 'resize' listener).
-      resize.resize();
-      observer = new ResizeObserver(() => resize.resize());
-      observer.observe(el);
-    });
+    const mounted = engine
+      .mount(el)
+      .then((token) => {
+        if (disposed) return token;
+        // Match the renderer/cameras to the actual container size, then keep them
+        // synced (the ResizeObserver replaces the old window 'resize' listener).
+        resize.resize();
+        observer = new ResizeObserver(() => resize.resize());
+        observer.observe(el);
+        return token;
+      })
+      .catch((err: unknown) => {
+        // A failing init (e.g. no WebGL context) must surface as a log line, not as
+        // an unhandled rejection that takes the General tab down.
+        logger.log(`3D preview could not start: ${describeError(err)}`, "error");
+        return undefined;
+      });
 
     // Steady-render safety net — a faithful port of the old three-canvas
     // `attached()` ("set steady rendering at least every second"). The animator
@@ -60,14 +80,21 @@ export default function ThreeCanvas() {
     // covered it.)
     const steadyRender = setInterval(() => {
       globalObject.render = true;
-      void checkForLineToUpdate();
+      // Fires once a second forever: a rejection here (e.g. the tab context points
+      // at a scene that was torn down mid-tick) must not become an unhandled
+      // rejection, and must not spam the log on every tick either.
+      void checkForLineToUpdate().catch(() => {});
     }, 1000);
 
     return () => {
       disposed = true;
       clearInterval(steadyRender);
       observer?.disconnect();
-      engine.unmount();
+      // Detach only once the mount has settled, and only if this mount still owns
+      // the engine (token check inside unmount). Both guards matter: the first stops
+      // an orphaned render loop, the second stops a stale StrictMode cleanup from
+      // detaching the canvas the second mount just attached.
+      void mounted.then((token) => engine.unmount(token));
     };
   }, []);
 

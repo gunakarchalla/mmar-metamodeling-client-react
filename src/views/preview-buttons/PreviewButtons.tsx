@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { Box, Button } from "@mui/material";
 import { eventBus } from "@/resources/services/event-bus";
 import { runPreview } from "@/views/preview-buttons/preview-pipeline";
+import { logger } from "@/resources/services/logger";
+import { describeError } from "@/resources/util/describe-error";
 
 // Ports `views/preview-buttons/preview-buttons.{ts,html}`. The Save-to-DB button
 // and its `save-selected` import are intentionally dropped (decision D3): the
@@ -17,8 +19,16 @@ export default function PreviewButtons() {
   // updatedGeometryValue (published by CodeEditor after previewButtonClicked) ->
   // run the preview pipeline.
   useEffect(() => {
-    const sub = eventBus.subscribe("updatedGeometryValue", async () => {
-      await runPreview();
+    // eventBus.publish() invokes listeners synchronously and discards whatever they
+    // return, so an async listener's rejection has nowhere to go: it would surface as
+    // an unhandled promise rejection rather than as a log entry. runPreview() already
+    // catches the geometry-compile failures it can attribute (empty / invalid JS), so
+    // this catch is the backstop for everything below it — a VizRep function that
+    // throws while executing, a missing mock instance, WebGL errors.
+    const sub = eventBus.subscribe("updatedGeometryValue", () => {
+      void runPreview().catch((err: unknown) => {
+        logger.log(`Preview failed: ${describeError(err)}`, "error");
+      });
     });
     return () => sub.dispose();
   }, []);
