@@ -1,9 +1,6 @@
 import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import {
-  Class,
-  Relationclass,
-  Port,
   ClassInstance,
   RelationclassInstance,
   PortInstance,
@@ -51,6 +48,21 @@ export async function runPreview(): Promise<void> {
     logger.log("No object selected to preview", "error");
     return;
   }
+
+  // Dispatch on the store's `type` discriminator, NOT on `instanceof`.
+  //
+  // vizrep's backend-service hydrated every response (`data.map(Class.fromJS)`), so
+  // its store held real gds instances and `selected instanceof Class` held. This
+  // client's `backendService.fetchData()` pushes the raw parsed JSON straight into
+  // the store (only SceneType and SceneInstance are ever run through `fromJS`), so
+  // Classes / Relationclasses / Ports are plain objects whose prototype is
+  // `Object.prototype`. Every `instanceof` check therefore fell through to the
+  // "not a Class, RelationClass or Port" branch and the preview silently drew
+  // nothing — for all three types.
+  //
+  // `type` is the same signal GeneralTab uses to decide whether to render this
+  // block at all, so the two can never disagree about what is selected.
+  const selectedType = store.type;
   // The mock SceneType is created during initiator.init() at engine mount; if it
   // is missing the canvas has not mounted yet.
   if (globalObject.sceneTypes.length === 0) {
@@ -123,7 +135,7 @@ export async function runPreview(): Promise<void> {
 
   // --- create the instance for the selected meta object ---
   let instance: ClassInstance | RelationclassInstance | PortInstance;
-  if (selected instanceof Relationclass) {
+  if (selectedType === "RelationClass") {
     instance = await instanceCreationHandler.createRelationclassInstance(
       instanceCreationHandler.create_UUID(),
       0,
@@ -133,7 +145,7 @@ export async function runPreview(): Promise<void> {
       "relation",
     );
     globalObject.current_class_instance = instance as ClassInstance;
-  } else if (selected instanceof Class) {
+  } else if (selectedType === "Class") {
     instance = await instanceCreationHandler.createClassInstance(
       instanceCreationHandler.create_UUID(),
       0,
@@ -143,7 +155,7 @@ export async function runPreview(): Promise<void> {
       "class",
     );
     globalObject.current_class_instance = instance as ClassInstance;
-  } else if (selected instanceof Port) {
+  } else if (selectedType === "Port") {
     const portSceneInstance = await instanceUtility.getTabContextSceneInstance();
     instance = await instanceCreationHandler.createPortInstance(
       instanceCreationHandler.create_UUID(),
@@ -164,7 +176,7 @@ export async function runPreview(): Promise<void> {
 
   // --- draw ---
   let classObject3D;
-  if (selected instanceof Relationclass) {
+  if (selectedType === "RelationClass") {
     const startObjecPoint: THREE.Vector3 = new THREE.Vector3(-1, 0, 0);
     const endObjectPoint: THREE.Vector3 = new THREE.Vector3(1, 0, 0);
 
