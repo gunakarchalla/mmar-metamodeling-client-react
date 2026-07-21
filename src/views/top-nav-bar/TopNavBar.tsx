@@ -10,19 +10,8 @@ import {
   ListItemText,
   Icon,
   Box,
-  Tooltip,
-  IconButton,
 } from "@mui/material";
-import UndoIcon from "@mui/icons-material/Undo";
-import RedoIcon from "@mui/icons-material/Redo";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import BugReportIcon from "@mui/icons-material/BugReport";
-import SaveIcon from "@mui/icons-material/Save";
 import { useAuthStore } from "@/resources/store/authStore";
-import { useLogStore } from "@/resources/store/logStore";
-import { useUiStore } from "@/resources/store/uiStore";
-import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
-import { backendService } from "@/resources/services/backend-service";
 
 interface MenuItemDef {
   label: string;
@@ -83,11 +72,6 @@ const MENUS: MenuDef[] = [
     icon: "settings",
     items: [{ label: "Open Settings", icon: "toggle_on", disabled: true }],
   },
-  {
-    name: "Algorithms",
-    icon: "functions",
-    items: [{ label: "Run Algorithm", icon: "play_arrow", disabled: true }],
-  },
 ];
 
 function MenuEntry({ menu }: { menu: MenuDef }) {
@@ -120,26 +104,12 @@ interface Props {
   onOpenLogin: () => void;
 }
 
-// Replaces top-nav-bar + toolbar-container. The toolbar buttons mirror
-// toolbar-container.ts: Undo/Redo disabled, Refresh -> global refresh, Test
-// (admin only) -> console.log selected object, Save -> persist + refresh.
+// Port of top-nav-bar: title, menus and the auth controls. The toolbar-container
+// buttons (undo/redo/refresh/debug/save) live in the second bar below
+// (`views/toolbar/Toolbar.tsx`) so the title fits on laptop screens.
 export default function TopNavBar({ onOpenLogin }: Props) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const logout = useAuthStore((s) => s.logout);
-  const log = useLogStore((s) => s.log);
-  const triggerRefresh = useUiStore((s) => s.triggerRefresh);
-
-  async function handleSave() {
-    await backendService.saveSelectedObject();
-    triggerRefresh();
-  }
-
-  function handleTest() {
-    console.log(
-      "Currently selected object : ",
-      useSelectedObjectStore.getState().selectedObject,
-    );
-  }
 
   return (
     <AppBar position="static" color="primary" elevation={1}>
@@ -153,37 +123,6 @@ export default function TopNavBar({ onOpenLogin }: Props) {
             <MenuEntry key={menu.name} menu={menu} />
           ))}
         </Box>
-
-        {/* Toolbar (toolbar-container parity) */}
-        <Tooltip title="undo">
-          <span>
-            <IconButton disabled onClick={() => log("undo", "info")}>
-              <UndoIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="redo">
-          <span>
-            <IconButton disabled onClick={() => log("redo", "info")}>
-              <RedoIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="refresh">
-          <IconButton onClick={() => triggerRefresh("Refresh button")}>
-            <RefreshIcon />
-          </IconButton>
-        </Tooltip>
-        {currentUser?.isAdmin && (
-          <IconButton onClick={handleTest}>
-            <BugReportIcon />
-          </IconButton>
-        )}
-        <Tooltip title="save">
-          <IconButton onClick={handleSave}>
-            <SaveIcon />
-          </IconButton>
-        </Tooltip>
 
         {currentUser ? (
           <>

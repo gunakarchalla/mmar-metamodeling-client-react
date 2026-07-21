@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box } from "@mui/material";
 import TopNavBar from "@/views/top-nav-bar/TopNavBar";
+import Toolbar from "@/views/toolbar/Toolbar";
 import AppFooter from "@/views/footer/AppFooter";
 import MainBody from "@/views/main-body/MainBody";
 import SignInSignUpDialog from "@/views/auth/SignInSignUpDialog";
@@ -37,7 +38,21 @@ export default function AppLayout() {
       <TopNavBar onOpenLogin={() => setLoginOpen(true)} />
 
       {currentUser ? (
-        <MainBody />
+        <>
+          {/* Toolbar row (mirrors the modeling client): the action buttons moved
+              out of the top bar so the page title stays visible on laptops. */}
+          <Box
+            sx={{
+              height: 40,
+              flex: "0 0 auto",
+              backgroundColor: "#f5f5f5",
+              borderBottom: "1px solid #bdbdbd",
+            }}
+          >
+            <Toolbar />
+          </Box>
+          <MainBody />
+        </>
       ) : (
         <Box sx={{ flex: 1 }} />
       )}
