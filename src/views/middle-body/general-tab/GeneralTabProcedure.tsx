@@ -1,8 +1,10 @@
 import { Box, Typography } from "@mui/material";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
-import { BoundText } from "./fields";
+import BoundCodeEditor from "@/views/code-editor/BoundCodeEditor";
 
-// Ports general-tab-procedure.{ts,html}: a Procedure definition textarea.
+// Ports general-tab-procedure.{ts,html}: the Procedure definition. The original
+// was a plain textarea; a procedure definition is JavaScript, so it gets a
+// Monaco editor instead (same treatment as the VizRep geometry code).
 export default function GeneralTabProcedure() {
   const obj = useSelectedObjectStore((s) => s.selectedObject);
   const update = useSelectedObjectStore((s) => s.updateSelectedField);
@@ -16,13 +18,9 @@ export default function GeneralTabProcedure() {
       <Typography component="legend" variant="caption" color="text.secondary">
         Procedure definition
       </Typography>
-      <BoundText
-        label="Procedure definition"
-        path="definition"
-        obj={obj}
-        update={update}
-        multiline
-        rows={10}
+      <BoundCodeEditor
+        value={(obj as { definition?: string }).definition ?? ""}
+        onChange={(v) => update("definition", v)}
       />
     </Box>
   );

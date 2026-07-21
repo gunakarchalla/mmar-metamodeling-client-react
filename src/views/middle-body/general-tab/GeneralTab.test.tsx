@@ -15,6 +15,26 @@ vi.mock("./vizrep-editor/VizRepGeometryEditor", () => ({
   default: () => <div data-testid="vizrep-editor" />,
 }));
 
+// The Procedure variant renders a Monaco editor for its definition. Its worker
+// wiring is unloadable under jsdom, and the editor itself stands in as a plain
+// textarea — what is under test here is the dispatch, not either editor.
+vi.mock("@/views/code-editor/monaco-setup", () => ({}));
+vi.mock("@monaco-editor/react", () => ({
+  default: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (v: string | undefined) => void;
+  }) => (
+    <textarea
+      data-testid="monaco"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
+}));
+
 import GeneralTab from "./GeneralTab";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 

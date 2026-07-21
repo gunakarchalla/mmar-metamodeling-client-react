@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Box } from "@mui/material";
+import { Box, useTheme } from "@mui/material";
 import Editor, { type BeforeMount } from "@monaco-editor/react";
 import beautify from "js-beautify";
 // Side-effect import: self-host Monaco + wire its workers under Vite (must run
@@ -35,6 +35,9 @@ const beautifyOptions = {
 // stale save" footgun).
 export default function CodeEditor() {
   const codeEditorValue = useEditorStore((s) => s.codeEditorValue);
+  // Follow the app's MUI palette rather than pinning a Monaco theme, so the
+  // editor never sits dark inside a light app (or vice versa).
+  const monacoTheme = useTheme().palette.mode === "dark" ? "vs-dark" : "vs";
 
   const beforeMount: BeforeMount = (monaco) => {
     if (!intelliSenseRegistered) {
@@ -72,7 +75,7 @@ export default function CodeEditor() {
     <Box className="editor" sx={{ width: "100%", height: "100%" }}>
       <Editor
         language="javascript"
-        theme="vs-dark"
+        theme={monacoTheme}
         value={codeEditorValue}
         onChange={(value) => {
           const v = value ?? "";
