@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Box, useTheme } from "@mui/material";
-import Editor, { type BeforeMount } from "@monaco-editor/react";
+import Editor, { type BeforeMount, type OnMount } from "@monaco-editor/react";
 import beautify from "js-beautify";
 // Side-effect import: self-host Monaco + wire its workers under Vite (must run
 // before the first <Editor/> mounts).
@@ -32,7 +32,9 @@ const beautifyOptions = {
 // Live commit (decision D2): onChange also writes the value onto
 // selectedObject.geometry via updateSelectedField, so the top-bar Save / Ctrl+S
 // always persists exactly what the editor shows (no "edited but not previewed →
-// stale save" footgun).
+// stale save" footgun). Undo/redo follow from that: the editor is just another
+// bound field, so its keys drive the tab's history (see `onMount`) rather than
+// Monaco's private buffer stack.
 export default function CodeEditor() {
   const codeEditorValue = useEditorStore((s) => s.codeEditorValue);
   // Follow the app's MUI palette rather than pinning a Monaco theme, so the
@@ -44,6 +46,27 @@ export default function CodeEditor() {
       monaco.languages.typescript.javascriptDefaults.addExtraLib(GC_INTELLISENSE);
       intelliSenseRegistered = true;
     }
+  };
+
+  // Route the editor's undo/redo keys to the *tab's* history instead of Monaco's
+  // own buffer history, so geometry behaves exactly like every other field: one
+  // step per coalesced edit run, and the tab goes clean again when a step lands
+  // back on the saved state. Monaco's own undo could not do that — because of
+  // live commit (D2) it reverts the buffer and the change comes straight back
+  // through onChange as a *forward* edit, leaving the tab permanently dirty even
+  // once the code reads identical to what was saved.
+  //
+  // This has to be registered on the editor: Monaco's keybinding service calls
+  // stopPropagation() for any key it resolves, so a window-level listener never
+  // sees Ctrl+Z here. `addCommand` registers as an override (weight 1000) layered
+  // over the built-in keybindings, which is what displaces the default undo.
+  const onMount: OnMount = (editor, monaco) => {
+    const { CtrlCmd, Shift } = monaco.KeyMod;
+    const undo = () => useSelectedObjectStore.getState().undo();
+    const redo = () => useSelectedObjectStore.getState().redo();
+    editor.addCommand(CtrlCmd | monaco.KeyCode.KeyZ, undo);
+    editor.addCommand(CtrlCmd | Shift | monaco.KeyCode.KeyZ, redo);
+    editor.addCommand(CtrlCmd | monaco.KeyCode.KeyY, redo);
   };
 
   // changeCodeEditorCode -> beautify the loaded geometry then write it back.
@@ -85,6 +108,7 @@ export default function CodeEditor() {
           useSelectedObjectStore.getState().updateSelectedField("geometry", v);
         }}
         beforeMount={beforeMount}
+        onMount={onMount}
         options={{
           minimap: { enabled: false },
           automaticLayout: true,

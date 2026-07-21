@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 //
-// The Refresh button's guard: a full refresh discards every open tab, so when a
-// tab has unsaved changes it must confirm first, and dismissing that confirm
-// must leave everything untouched (no refresh fired).
+// Two toolbar behaviours:
+//   - the Refresh button's guard: a full refresh discards every open tab, so when
+//     a tab has unsaved changes it must confirm first, and dismissing that confirm
+//     must leave everything untouched (no refresh fired);
+//   - the undo/redo arrows, which step the *active tab's* history and are enabled
+//     strictly by what that tab has left to undo/redo.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { SceneType } from "@gds";
 
 vi.mock("@/resources/services/backend-service", () => ({
@@ -17,6 +20,8 @@ import { useUiStore } from "@/resources/store/uiStore";
 
 const store = () => useSelectedObjectStore.getState();
 const refreshBtn = () => screen.getByRole("button", { name: "refresh" });
+const undoBtn = () => screen.getByRole("button", { name: "undo" }) as HTMLButtonElement;
+const redoBtn = () => screen.getByRole("button", { name: "redo" }) as HTMLButtonElement;
 
 function openTwo() {
   store().setSceneTypes([
@@ -79,5 +84,44 @@ describe("Toolbar refresh guard", () => {
     );
     expect(useUiStore.getState().refreshNonce).toBe(0);
     expect(store().openTabs).toHaveLength(2);
+  });
+});
+
+describe("Toolbar undo/redo", () => {
+  it("keeps both arrows disabled with nothing open", () => {
+    render(<Toolbar />);
+    expect(undoBtn().disabled).toBe(true);
+    expect(redoBtn().disabled).toBe(true);
+  });
+
+  it("enables undo once the active tab has an edit, and reverts it", () => {
+    openTwo();
+    render(<Toolbar />);
+    expect(undoBtn().disabled).toBe(true);
+
+    // act(): the store is mutated from outside React here, so the toolbar's
+    // re-render has to be flushed before the buttons are asserted on.
+    act(() => store().updateSelectedField("name", "Beta edited"));
+    expect(undoBtn().disabled).toBe(false);
+    expect(redoBtn().disabled).toBe(true);
+
+    fireEvent.click(undoBtn());
+    expect(store().selectedObject?.name).toBe("Beta");
+    expect(undoBtn().disabled).toBe(true);
+    expect(redoBtn().disabled).toBe(false);
+
+    fireEvent.click(redoBtn());
+    expect(store().selectedObject?.name).toBe("Beta edited");
+  });
+
+  it("follows the active tab's own history when tabs are switched", () => {
+    openTwo();
+    store().updateSelectedField("name", "Beta edited");
+    render(<Toolbar />);
+    expect(undoBtn().disabled).toBe(false);
+
+    // st-1 was never edited, so its tab has nothing to undo
+    act(() => store().activateTab("st-1"));
+    expect(undoBtn().disabled).toBe(true);
   });
 });

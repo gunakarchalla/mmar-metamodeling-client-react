@@ -12,11 +12,18 @@ import {
   Box,
 } from "@mui/material";
 import { useAuthStore } from "@/resources/store/authStore";
+import {
+  selectCanRedo,
+  selectCanUndo,
+  useSelectedObjectStore,
+} from "@/resources/store/selectedObjectStore";
 
 interface MenuItemDef {
   label: string;
   icon: string;
   disabled?: boolean;
+  /** Live items name a store action; every other item stays an inert stub. */
+  action?: "undo" | "redo";
 }
 interface MenuDef {
   name: string;
@@ -24,8 +31,9 @@ interface MenuDef {
   items: MenuItemDef[];
 }
 
-// Static, fully-disabled top menus (parity with top-nav-bar.ts). They open but
-// every item is inert — no dead logic is re-implemented (decided scope).
+// Static top menus (parity with top-nav-bar.ts). Every item is inert except
+// Edit ▸ Undo/Redo, which share the toolbar arrows' per-tab history — no other
+// dead logic is re-implemented (decided scope).
 const MENUS: MenuDef[] = [
   {
     name: "File",
@@ -51,8 +59,8 @@ const MENUS: MenuDef[] = [
     name: "Edit",
     icon: "edit",
     items: [
-      { label: "Undo", icon: "undo", disabled: true },
-      { label: "Redo", icon: "redo", disabled: true },
+      { label: "Undo", icon: "undo", action: "undo" },
+      { label: "Redo", icon: "redo", action: "redo" },
       { label: "Copy", icon: "file_copy", disabled: true },
       { label: "Paste", icon: "content_paste", disabled: true },
       { label: "Cut", icon: "content_cut", disabled: true },
@@ -77,6 +85,19 @@ const MENUS: MenuDef[] = [
 function MenuEntry({ menu }: { menu: MenuDef }) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
+
+  // Live items are looked up by name so the hooks stay unconditional (a menu
+  // without any live item just ignores these). Booleans, so a menu re-renders
+  // only when a step becomes (un)available.
+  const enabled = {
+    undo: useSelectedObjectStore(selectCanUndo),
+    redo: useSelectedObjectStore(selectCanRedo),
+  };
+  const run = {
+    undo: useSelectedObjectStore((s) => s.undo),
+    redo: useSelectedObjectStore((s) => s.redo),
+  };
+
   return (
     <>
       <Button
@@ -88,7 +109,18 @@ function MenuEntry({ menu }: { menu: MenuDef }) {
       </Button>
       <Menu anchorEl={anchorEl} open={open} onClose={() => setAnchorEl(null)}>
         {menu.items.map((item) => (
-          <MenuItem key={item.label} disabled={item.disabled}>
+          <MenuItem
+            key={item.label}
+            disabled={item.action ? !enabled[item.action] : item.disabled}
+            onClick={
+              item.action
+                ? () => {
+                    run[item.action!]();
+                    setAnchorEl(null);
+                  }
+                : undefined
+            }
+          >
             <ListItemIcon>
               <Icon>{item.icon}</Icon>
             </ListItemIcon>

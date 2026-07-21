@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useSelectedObjectStore } from "./selectedObjectStore";
+import { selectCanRedo, selectCanUndo, useSelectedObjectStore } from "./selectedObjectStore";
 import { SceneType } from "@gds/models/meta/Metamodel_scenetypes.structure";
+import { Class } from "@gds/models/meta/Metamodel_classes.structure";
+import { useEditorStore } from "./editorStore";
 
 const reset = () => useSelectedObjectStore.getState().resetObjects();
 
@@ -167,5 +169,173 @@ describe("selectedObjectStore open tabs", () => {
     store().resetObjects();
     expect(store().openTabs).toHaveLength(0);
     expect(store().selectedObject).toBeNull();
+  });
+});
+
+describe("selectedObjectStore undo/redo", () => {
+  const store = () => useSelectedObjectStore.getState();
+  const canUndo = () => selectCanUndo(useSelectedObjectStore.getState());
+  const canRedo = () => selectCanRedo(useSelectedObjectStore.getState());
+
+  beforeEach(() => {
+    reset();
+    store().setSceneTypes([
+      SceneType.fromJS({ uuid: "st-1", name: "One" }) as SceneType,
+      SceneType.fromJS({ uuid: "st-2", name: "Two" }) as SceneType,
+    ]);
+    store().setClasses([Class.fromJS({ uuid: "cl-1", name: "Klass" }) as Class]);
+  });
+
+  it("has nothing to undo on a freshly opened tab", () => {
+    store().setSelectedObject("st-1");
+    expect(canUndo()).toBe(false);
+    expect(canRedo()).toBe(false);
+    store().undo();
+    expect(store().selectedObject?.name).toBe("One");
+  });
+
+  it("undoes a field edit and redoes it", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "edited");
+    expect(canUndo()).toBe(true);
+
+    store().undo();
+    expect(store().selectedObject?.name).toBe("One");
+    expect(canUndo()).toBe(false);
+    expect(canRedo()).toBe(true);
+
+    store().redo();
+    expect(store().selectedObject?.name).toBe("edited");
+    expect(canRedo()).toBe(false);
+  });
+
+  it("collapses a run of keystrokes in one field into a single step", () => {
+    store().setSelectedObject("st-1");
+    for (const value of ["O", "On", "Onc", "Once"]) {
+      store().updateSelectedField("name", value);
+    }
+    store().undo();
+    expect(store().selectedObject?.name).toBe("One");
+    expect(canUndo()).toBe(false);
+  });
+
+  it("keeps edits to different fields as separate steps", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "renamed");
+    store().updateSelectedField("description", "described");
+
+    store().undo();
+    expect(store().selectedObject?.description).not.toBe("described");
+    expect(store().selectedObject?.name).toBe("renamed");
+    store().undo();
+    expect(store().selectedObject?.name).toBe("One");
+  });
+
+  // The reason snapshots are deep clones: `classes` is mutated in place, so a
+  // shallow snapshot would share the array being edited and restore nothing.
+  it("undoes a structural child change", () => {
+    store().setSelectedObject("st-1");
+    store().addChild("cl-1", "Class");
+    expect((store().selectedObject as SceneType).classes).toHaveLength(1);
+
+    store().undo();
+    expect((store().selectedObject as SceneType).classes).toHaveLength(0);
+    store().redo();
+    expect((store().selectedObject as SceneType).classes).toHaveLength(1);
+  });
+
+  it("keeps a separate history per tab and steps only the active one", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "one edited");
+    store().setSelectedObject("st-2");
+    store().updateSelectedField("name", "two edited");
+
+    // undo on st-2 leaves st-1's edit alone
+    store().undo();
+    expect(store().selectedObject?.name).toBe("Two");
+    expect(store().getTab("st-1")?.object.name).toBe("one edited");
+
+    store().setSelectedObject("st-1");
+    expect(canRedo()).toBe(false); // st-1 has its own, un-undone history
+    store().undo();
+    expect(store().selectedObject?.name).toBe("One");
+  });
+
+  it("undoing back to the saved state makes the tab clean again", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "edited");
+    expect(store().getTab("st-1")?.dirty).toBe(true);
+
+    store().undo();
+    expect(store().getTab("st-1")?.dirty).toBe(false);
+    store().redo();
+    expect(store().getTab("st-1")?.dirty).toBe(true);
+  });
+
+  it("treats the last save as the new clean point", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "saved name");
+    store().markTabClean("st-1");
+    store().updateSelectedField("description", "later edit");
+    expect(store().getTab("st-1")?.dirty).toBe(true);
+
+    store().undo();
+    expect(store().selectedObject?.name).toBe("saved name");
+    expect(store().getTab("st-1")?.dirty).toBe(false);
+  });
+
+  it("drops the redo branch once a new edit lands", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "first");
+    store().undo();
+    expect(canRedo()).toBe(true);
+
+    store().updateSelectedField("name", "second");
+    expect(canRedo()).toBe(false);
+    store().undo();
+    expect(store().selectedObject?.name).toBe("One");
+  });
+
+  // A restored snapshot is handed out as a clone; if it were not, the next edit
+  // would mutate the stored entry and undoing again would return the new value.
+  it("does not let a post-undo edit corrupt the snapshot it came from", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "first");
+    store().undo();
+    store().updateSelectedField("description", "added later");
+    store().undo();
+    expect(store().selectedObject?.name).toBe("One");
+    expect(store().selectedObject?.description).not.toBe("added later");
+  });
+
+  // The Monaco buffer is a second mirror of `geometry`, so a step that changes
+  // the geometry has to move it too — and a step that does not must leave the
+  // (beautified, D8) buffer exactly as the user sees it.
+  it("pushes a restored geometry into the editor buffer, and only then", () => {
+    store().setClasses([
+      Class.fromJS({ uuid: "cl-2", name: "Drawn", geometry: "original()" }) as Class,
+    ]);
+    store().setSelectedObject("cl-2");
+    useEditorStore.getState().setCode("beautified original()");
+
+    store().updateSelectedField("name", "renamed");
+    store().undo();
+    expect(useEditorStore.getState().codeEditorValue).toBe("beautified original()");
+
+    store().updateSelectedField("geometry", "edited()");
+    store().undo();
+    expect(useEditorStore.getState().codeEditorValue).toBe("original()");
+    store().redo();
+    expect(useEditorStore.getState().codeEditorValue).toBe("edited()");
+  });
+
+  it("closing a tab discards its history", () => {
+    store().setSelectedObject("st-1");
+    store().updateSelectedField("name", "edited");
+    store().closeTab("st-1");
+    expect(canUndo()).toBe(false);
+
+    store().setSelectedObject("st-1");
+    expect(canUndo()).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import AppSnackbar from "@/views/common/AppSnackbar";
 import { useAuthStore } from "@/resources/store/authStore";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { backendService } from "@/resources/services/backend-service";
+import { hasCommandModifier } from "@/resources/util/platform";
 
 // Mirrors my-app.html: TopNavBar + main body + footer, plus the cross-cutting
 // snackbar and the auth dialog. The body is gated behind authentication; the
@@ -22,13 +23,36 @@ export default function AppLayout() {
     if (!currentUser) setLoginOpen(true);
   }, [currentUser]);
 
-  // Ctrl+S -> save selected object (replaces toolbar-container keydown handler).
+  // Ctrl+S / ⌘S -> save selected object (replaces toolbar-container keydown
+  // handler). Monaco binds no Save chord of its own, so this keeps working while
+  // the code editor has focus.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key === "s") {
+      if (hasCommandModifier(event) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         backendService.saveSelectedObject();
       }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Undo/redo on the active tab: Ctrl+Z / ⌘Z to undo, Ctrl+Shift+Z / ⌘⇧Z and
+  // Ctrl+Y / ⌘Y to redo. `key` is lower-cased because Shift uppercases it.
+  // Events from inside Monaco are skipped only to rule out a double step: the
+  // editor binds the same chords to the same store actions itself (CodeEditor's
+  // `onMount`, which it must, since Monaco stops propagation on keys it
+  // resolves). Both routes end in one undo of the active tab either way.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!hasCommandModifier(event) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key !== "z" && key !== "y") return;
+      if ((event.target as HTMLElement | null)?.closest?.(".monaco-editor")) return;
+      event.preventDefault();
+      const store = useSelectedObjectStore.getState();
+      if (key === "y" || event.shiftKey) store.redo();
+      else store.undo();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

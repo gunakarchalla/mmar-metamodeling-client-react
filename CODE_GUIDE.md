@@ -117,9 +117,30 @@ learner:
   `MainBody` appears.
 - **Auto-open login:** a `useEffect` keyed on `[currentUser]` opens the sign-in
   dialog whenever nobody is logged in.
-- **The Ctrl+S handler** is a textbook `useEffect`: on mount it adds a `keydown`
+- **The Save handler** is a textbook `useEffect`: on mount it adds a `keydown`
   listener to `window`, and the returned function removes it on unmount. The `[]`
   means "set this up once."
+- **The undo/redo shortcuts** are a second such effect. They skip events
+  originating inside `.monaco-editor` purely to avoid a double step — the editor
+  binds the same chords to the same store actions itself. See
+  [undo/redo](#undoredo-per-tab-history).
+- **Both are platform-aware.** The chords are Ctrl-based on Windows/Linux and
+  ⌘-based on macOS:
+
+  | Action | Windows / Linux | macOS |
+  |---|---|---|
+  | Save | Ctrl+S | ⌘S |
+  | Undo | Ctrl+Z | ⌘Z |
+  | Redo | Ctrl+Shift+Z, Ctrl+Y | ⌘⇧Z, ⌘Y |
+
+  Neither handler tests `event.ctrlKey` directly; both go through
+  [`hasCommandModifier`](src/resources/util/platform.ts), whose OS detection
+  deliberately mirrors Monaco's own (a `"Macintosh"` substring in the user agent).
+  That matters because the code editor binds *its* copies of these chords through
+  `KeyMod.CtrlCmd`, which Monaco decodes to `metaKey` on macOS and `ctrlKey`
+  elsewhere — if the two disagreed about the platform, one of them would obey the
+  wrong key. Note `⌘` must not be interchangeable with Ctrl: accepting either
+  would make Ctrl+Z (a no-op chord on macOS) silently undo.
 - **The `beforeunload` guard** is a second window-level `useEffect` alongside it.
   It cancels a real browser navigation (reload / tab close) — raising the native
   "Leave site?" prompt — but only while `hasUnsavedTabs()` is true. This is the
@@ -170,7 +191,7 @@ All five live in [src/resources/store/](src/resources/store/):
 
 | Store | Lines | Replaces | Holds |
 |---|---:|---|---|
-| [selectedObjectStore.ts](src/resources/store/selectedObjectStore.ts) | 1443 | `SelectedObjectService` | the metamodel tree + current selection + open tabs |
+| [selectedObjectStore.ts](src/resources/store/selectedObjectStore.ts) | 1645 | `SelectedObjectService` | the metamodel tree + current selection + open tabs + per-tab undo history |
 | [authStore.ts](src/resources/store/authStore.ts) | 157 | `UserService` | `currentUser`, JWT helpers |
 | [editorStore.ts](src/resources/store/editorStore.ts) | 52 | vizrep's globals | the Monaco buffer + preview UI state |
 | [logStore.ts](src/resources/store/logStore.ts) | 35 | `Logger` + `MdcSnackbarService` | log list + snackbar |
@@ -263,6 +284,65 @@ copy** of the object, plus which sub-tab it was left on. The rules:
 prompt has to save a **background** tab, and `saveSelectedObject()` could only
 ever save the active one. The latter is now a one-line delegation.
 
+#### Undo/redo (per-tab history)
+
+Each `OpenTab` also carries a `history: TabHistory` — `entries` (snapshots of its
+working copy, oldest → newest), `index` (which one the tab currently shows) and
+`savedIndex`. `undo()` / `redo()` step the **active** tab only, which is what
+makes "undo" mean the same thing as the tab strip's dirty dot.
+
+The whole feature hangs off **one hook: `commit()`/`setSelected()`** — the same
+choke point `dirty` already rode on. Every mutator in the store (General-tab
+fields, structural add/remove, `updateMinMax`, row reordering, the Monaco
+live-commit) already funnels through it, so undo covers *every* kind of change
+with no per-mutator bookkeeping that could drift out of sync. Four things are
+load-bearing:
+
+- **Snapshots are `deepClone`, not `reref`.** `reref` is shallow on purpose, but
+  the nested structures it keeps sharing (`classes`, `role_from.class_references`,
+  `has_table_attribute`, …) are exactly the ones the in-place mutators edit — a
+  shallow snapshot would be rewritten from under the history by the next edit and
+  undo would restore nothing. Restoring clones *again* on the way out, for the
+  same reason in reverse.
+- **Keystroke coalescing.** `updateSelectedField` passes the field path as a
+  coalescing key, so a run of edits to one field within 600 ms collapses into a
+  single undo step — otherwise undoing a typed-in name would cost one press per
+  character. Structural mutators pass no key and so always get their own step.
+- **`dirty` is now derived: `index !== savedIndex`.** So undoing back to the last
+  saved state genuinely un-dirties the tab (and the ✕ comes back), and
+  `markTabClean` just parks `savedIndex` on the current index. A new edit made
+  after an undo discards the redo branch — and `savedIndex` with it, if that is
+  where the branch was.
+- **Geometry has mirrors.** A step that changes `geometry` must also push it into
+  the Monaco buffer and redraw the canvas — but *only* when it actually changed,
+  or an undo of an unrelated field would replace the beautified buffer with the
+  object's raw source (D8). `@monaco-editor/react` guards programmatic `value`
+  pushes with an internal `preventTriggerChangeEvent` flag, so this does **not**
+  re-fire `onChange` and clobber the redo branch.
+
+**Monaco is treated as just another bound field.** `CodeEditor`'s `onMount`
+rebinds Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y to the store's `undo`/`redo`, displacing
+Monaco's own buffer history. This is not a stylistic preference — leaving
+Monaco's native undo in place is actively broken here, because live commit (D2)
+turns it into a *forward* edit: it reverts the buffer, `onChange` fires,
+`updateSelectedField` pushes a new history entry, and the tab stays dirty even
+once the code reads character-for-character identical to what was saved. Routing
+the keys to the tab history makes geometry undo behave like the name field —
+including going clean again. It has to be registered on the editor rather than on
+`window`, because Monaco's keybinding service calls `stopPropagation()` for every
+key it resolves; `addCommand` registers as an **override** (weight 1000) layered
+over the built-in keybindings, which is what displaces the default. The trade-off
+is deliberate: you lose character-level undo inside the editor and get one step
+per coalesced edit run, the same granularity as every other field.
+
+The controls are the toolbar arrows and Edit ▸ Undo/Redo, both driven by the
+exported `selectCanUndo` / `selectCanRedo` selectors. They return **booleans**, so
+a subscriber re-renders only when availability flips — not on every keystroke that
+pushes a snapshot.
+
+Undo is deliberately scoped to a tab's working copy: creating and deleting objects
+are server round-trips, not tab edits, and stay outside the stack.
+
 ### 2. authStore — login/logout/signup
 
 Holds `currentUser` and JWT helpers. The token lives in
@@ -325,10 +405,12 @@ against the original.
 | [helper-service.ts](src/resources/services/helper-service.ts) | `DataUrltoFile` / `FiletoDataUrl` |
 | [validation.ts](src/resources/services/validation.ts) | regex validation (verbatim from the original) |
 
-Plus two small helpers in [src/resources/util/](src/resources/util/):
-`textify.ts` (port of the Aurelia value converter) and `describe-error.ts`
+Plus three small helpers in [src/resources/util/](src/resources/util/):
+`textify.ts` (port of the Aurelia value converter), `describe-error.ts`
 (renders an unknown thrown value as a log-safe string — necessary because
-user-authored geometry can `throw` anything, not just an `Error`).
+user-authored geometry can `throw` anything, not just an `Error`) and
+`platform.ts` (which modifier key means "command" here — see
+[the layout](#the-layout--srcviewslayoutapplayouttsx)).
 
 ### api.ts
 
@@ -497,10 +579,13 @@ Both it and `ParentChildSelect` match the search term against name, description
 
 TopNavBar has six menus — File, View, Edit, Diagram, Settings, Algorithms —
 which are intentionally **disabled stubs**: they open, but every item is inert,
-matching the original. Undo/Redo are likewise disabled. The working controls are
-Refresh (`triggerRefresh("Refresh button")`, but confirms first when any open tab
-has unsaved changes — a full refresh discards them all), Save (persist + refresh),
-an admin-only Test button that `console.log`s the selection, and Sign In/Out.
+matching the original. The one exception is **Edit ▸ Undo/Redo**, which shares the
+toolbar arrows' [per-tab history](#undoredo-per-tab-history) (an item is live iff
+it carries an `action`). The other working controls are the toolbar's Undo/Redo
+arrows, Refresh (`triggerRefresh("Refresh button")`, but confirms first when any
+open tab has unsaved changes — a full refresh discards them all), Save (persist +
+refresh), an admin-only Test button that `console.log`s the selection, and
+Sign In/Out.
 
 [SignInSignUpDialog.tsx](src/views/auth/SignInSignUpDialog.tsx) does login/signup
 and fires a full refresh on success.
@@ -740,7 +825,7 @@ falls back to `.env`'s `http://mmar-server:8000` (the in-container hostname).
 
 ## Tests
 
-`npm run test` → **134 tests across 16 files**, all green. Vitest defaults to the
+`npm run test` → **168 tests across 18 files**, all green. Vitest defaults to the
 `node` environment; the component suites opt into jsdom per-file with a
 `// @vitest-environment jsdom` docblock — cheaper than a global switch, and it keeps
 the blast radius small. [src/test-setup.ts](src/test-setup.ts) imports
@@ -759,6 +844,17 @@ For the tab strip the pair is
 back") and
 [ObjectTabs.test.tsx](src/views/object-tabs/ObjectTabs.test.tsx) (10 tests on the
 circle, the prompt, and the dismiss-does-nothing rule).
+
+Undo/redo is pinned in four places: the same store suite (12 more tests — the
+deep-clone requirement, coalescing, the per-tab split, the `dirty` round trip and
+the geometry mirror), [Toolbar.test.tsx](src/views/toolbar/Toolbar.test.tsx) (the
+arrows' enabled state follows the *active* tab) and
+[AppLayout.test.tsx](src/views/layout/AppLayout.test.tsx) (the shortcuts, including
+the no-double-step rule for events out of Monaco). The editor's own takeover of
+those chords is pinned in
+[CodeEditor.test.tsx](src/views/code-editor/CodeEditor.test.tsx), and the
+Ctrl-vs-⌘ split in [platform.test.ts](src/resources/util/platform.test.ts) plus a
+macOS block in the AppLayout suite.
 
 ---
 

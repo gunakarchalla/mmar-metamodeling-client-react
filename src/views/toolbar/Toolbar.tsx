@@ -16,10 +16,21 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import BugReportIcon from "@mui/icons-material/BugReport";
 import SaveIcon from "@mui/icons-material/Save";
 import { useAuthStore } from "@/resources/store/authStore";
-import { useLogStore } from "@/resources/store/logStore";
 import { useUiStore } from "@/resources/store/uiStore";
-import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import {
+  selectCanRedo,
+  selectCanUndo,
+  useSelectedObjectStore,
+} from "@/resources/store/selectedObjectStore";
 import { backendService } from "@/resources/services/backend-service";
+import { isMacPlatform } from "@/resources/util/platform";
+
+// Tooltip suffixes advertising each button's keyboard chord. The `aria-label`s
+// below stay bare ("undo", "save", …) so the accessible names don't drift with
+// the platform — MUI would otherwise derive them from these titles.
+const CHORDS = isMacPlatform()
+  ? { undo: "⌘Z", redo: "⌘⇧Z", save: "⌘S" }
+  : { undo: "Ctrl+Z", redo: "Ctrl+Shift+Z", save: "Ctrl+S" };
 
 // Vertical divider matching the modeling client's toolbar (1px light-grey separator).
 function VDivider() {
@@ -27,13 +38,19 @@ function VDivider() {
 }
 
 // Second menu bar (toolbar-container parity), split out of TopNavBar so the page
-// title stays visible on laptop screens. Undo/Redo are disabled stubs, Refresh
-// triggers the global refresh, the bug button (admin only) logs the selected
-// object and Save persists it + refreshes.
+// title stays visible on laptop screens. Undo/Redo step the *active tab's* own
+// history, Refresh triggers the global refresh, the bug button (admin only) logs
+// the selected object and Save persists it + refreshes.
 export default function Toolbar() {
   const currentUser = useAuthStore((s) => s.currentUser);
-  const log = useLogStore((s) => s.log);
   const triggerRefresh = useUiStore((s) => s.triggerRefresh);
+
+  // Boolean selectors: these re-render the toolbar only when a step becomes
+  // (un)available, not on every keystroke that pushes a history entry.
+  const canUndo = useSelectedObjectStore(selectCanUndo);
+  const canRedo = useSelectedObjectStore(selectCanRedo);
+  const undo = useSelectedObjectStore((s) => s.undo);
+  const redo = useSelectedObjectStore((s) => s.redo);
 
   // A full refresh re-fetches every collection and so discards every open tab,
   // unsaved edits included. Confirm first when any tab is dirty; dismissing the
@@ -67,16 +84,20 @@ export default function Toolbar() {
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", width: "100%", height: "100%", px: 1 }}>
-      <Tooltip title="undo">
+      {/* The <span> wrappers keep the tooltips working while the buttons are
+          disabled (a disabled button fires no pointer events), which is also why
+          each button carries its own aria-label — MUI would otherwise hang the
+          tooltip's accessible name on the span. */}
+      <Tooltip title={`undo (${CHORDS.undo})`}>
         <span>
-          <IconButton size="small" disabled onClick={() => log("undo", "info")}>
+          <IconButton size="small" aria-label="undo" disabled={!canUndo} onClick={undo}>
             <UndoIcon />
           </IconButton>
         </span>
       </Tooltip>
-      <Tooltip title="redo">
+      <Tooltip title={`redo (${CHORDS.redo})`}>
         <span>
-          <IconButton size="small" disabled onClick={() => log("redo", "info")}>
+          <IconButton size="small" aria-label="redo" disabled={!canRedo} onClick={redo}>
             <RedoIcon />
           </IconButton>
         </span>
@@ -99,8 +120,8 @@ export default function Toolbar() {
 
       <VDivider />
 
-      <Tooltip title="save">
-        <IconButton size="small" onClick={handleSave}>
+      <Tooltip title={`save (${CHORDS.save})`}>
+        <IconButton size="small" aria-label="save" onClick={handleSave}>
           <SaveIcon />
         </IconButton>
       </Tooltip>

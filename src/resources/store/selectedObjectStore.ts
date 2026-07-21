@@ -21,6 +21,8 @@ import { User } from "@gds/models/meta/Metamodel_users.structure";
 import { ColumnStructure } from "@gds/models/meta/Metamodel_columns.structure";
 import { Procedure } from "@gds/models/meta/Metamodel_procedure.structure";
 import { useLogStore } from "./logStore";
+import { useEditorStore } from "./editorStore";
+import { eventBus } from "../services/event-bus";
 
 export type SelectableObject =
   | SceneType
@@ -44,7 +46,53 @@ function reref<T>(obj: T): T {
   return Object.assign(Object.create(Object.getPrototypeOf(obj)), obj);
 }
 
+/**
+ * Prototype-preserving *deep* clone, used for undo snapshots. `reref` above is
+ * deliberately shallow, but the nested structures it keeps sharing (`classes`,
+ * `role_from.class_references`, `has_table_attribute`, …) are exactly the ones
+ * every in-place mutator edits — so a shallow snapshot would be rewritten from
+ * under the history by the very next edit and undo would restore nothing.
+ */
+function deepClone<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  // primitives and functions (geometry is typed `Function`) are shared as-is
+  if (value === null || typeof value !== "object") return value;
+  const already = seen.get(value as object);
+  if (already !== undefined) return already as T;
+  if (value instanceof Date) return new Date(value.getTime()) as T;
+  const clone = (
+    Array.isArray(value) ? [] : Object.create(Object.getPrototypeOf(value))
+  ) as Record<string, unknown>;
+  seen.set(value as object, clone);
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    clone[key] = deepClone(nested, seen);
+  }
+  return clone as T;
+}
+
 const log = (value: string, status: string) => useLogStore.getState().log(value, status);
+
+/** How many snapshots a tab keeps. Each one is a full deep clone of the object
+ *  (children and geometry included), so this is a memory ceiling, not a UX one —
+ *  keystroke coalescing already keeps a long typing session to a few entries. */
+const MAX_HISTORY_ENTRIES = 50;
+/** Successive edits to the *same* field within this window become one undo step. */
+const COALESCE_WINDOW_MS = 600;
+
+/**
+ * A tab's undo/redo stack: snapshots of its working copy, oldest → newest.
+ * `entries[index]` is always what the tab currently shows.
+ */
+export interface TabHistory {
+  entries: SelectableObject[];
+  index: number;
+  /** index whose snapshot matches what was last persisted; -1 once it falls off
+   *  the stack or is discarded by a new edit branch. `index === savedIndex` is
+   *  what "this tab is clean" means. */
+  savedIndex: number;
+  /** field path the newest entry was created by, for keystroke coalescing */
+  coalesceKey: string | null;
+  coalesceAt: number;
+}
 
 /**
  * One open editor tab (VS-Code style). Each tab owns its *own* working copy of
@@ -59,7 +107,74 @@ export interface OpenTab {
   innerTab: string | undefined;
   /** true when the working copy has edits that were never persisted */
   dirty: boolean;
+  /** per-tab undo/redo stack — undo is scoped to the tab you are looking at */
+  history: TabHistory;
 }
+
+const newHistory = (obj: SelectableObject): TabHistory => ({
+  entries: [deepClone(obj)],
+  index: 0,
+  savedIndex: 0,
+  coalesceKey: null,
+  coalesceAt: 0,
+});
+
+/**
+ * Record a post-mutation snapshot. `coalesceKey` is the edited field path when
+ * the caller is a keystroke-rate mutator (`updateSelectedField`); structural
+ * mutators pass nothing and so always get their own undo step.
+ */
+function pushHistory(
+  history: TabHistory,
+  snapshot: SelectableObject,
+  coalesceKey?: string,
+): TabHistory {
+  const now = Date.now();
+  const atTip = history.index === history.entries.length - 1;
+
+  // Merge a run of keystrokes in one field into a single undo step — otherwise
+  // undoing a typed-in name would cost one press per character. Never merge onto
+  // the saved snapshot: undo has to be able to land back on it.
+  if (
+    coalesceKey &&
+    atTip &&
+    history.index !== history.savedIndex &&
+    history.coalesceKey === coalesceKey &&
+    now - history.coalesceAt < COALESCE_WINDOW_MS
+  ) {
+    const entries = [...history.entries];
+    entries[history.index] = snapshot;
+    return { ...history, entries, coalesceAt: now };
+  }
+
+  // Editing after an undo drops the redo branch — and the saved state with it,
+  // if that is where the branch was.
+  const entries = [...history.entries.slice(0, history.index + 1), snapshot];
+  let savedIndex = history.savedIndex > history.index ? -1 : history.savedIndex;
+  let index = entries.length - 1;
+  if (entries.length > MAX_HISTORY_ENTRIES) {
+    const overflow = entries.length - MAX_HISTORY_ENTRIES;
+    entries.splice(0, overflow);
+    index -= overflow;
+    savedIndex = savedIndex < overflow ? -1 : savedIndex - overflow;
+  }
+  return { entries, index, savedIndex, coalesceKey: coalesceKey ?? null, coalesceAt: now };
+}
+
+const activeHistory = (s: SelectedObjectState): TabHistory | undefined =>
+  s.openTabs.find((t) => t.uuid === s.activeTabUuid)?.history;
+
+/** Selectors for the undo/redo controls. They return booleans, so a subscribing
+ *  component re-renders only when availability actually flips — not on every
+ *  keystroke that pushes a snapshot. */
+export const selectCanUndo = (s: SelectedObjectState) => {
+  const history = activeHistory(s);
+  return !!history && history.index > 0;
+};
+export const selectCanRedo = (s: SelectedObjectState) => {
+  const history = activeHistory(s);
+  return !!history && history.index < history.entries.length - 1;
+};
 
 export interface SelectedObjectState {
   // collections
@@ -101,6 +216,11 @@ export interface SelectedObjectState {
   markTabClean: (uuid: UUID) => void;
   getTab: (uuid: UUID) => OpenTab | undefined;
   hasUnsavedTabs: () => boolean;
+
+  // --- undo/redo, scoped to the active tab ---
+  undo: () => void;
+  redo: () => void;
+
   resetObjects: () => void;
   getTypeFromUuid: (uuid: UUID) => string | null;
   getObjectsFromRole: (
@@ -212,21 +332,31 @@ export interface SelectedObjectState {
 }
 
 export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => {
-  // Push the new working copy back into the active tab entry and flag it dirty:
-  // every path through commit()/setSelected() is an *edit*, which is exactly
-  // what the tab strip's unsaved-changes dot reports.
-  const syncActiveTab = (s: SelectedObjectState, obj: SelectableObject | null | undefined) =>
-    s.openTabs.map((t) =>
-      t.uuid === s.activeTabUuid && obj ? { ...t, object: obj, dirty: true } : t,
-    );
+  // Push the new working copy back into the active tab entry, record an undo
+  // snapshot and re-derive the dirty flag: every path through
+  // commit()/setSelected() is an *edit*, which is exactly what the tab strip's
+  // unsaved-changes dot and the undo stack both need to hear about. Hooking the
+  // one choke point is what makes undo cover *every* kind of change — General
+  // tab fields, structural add/remove, min/max, row reordering, geometry — for
+  // free, with no per-mutator bookkeeping that could drift.
+  const syncActiveTab = (
+    s: SelectedObjectState,
+    obj: SelectableObject | null | undefined,
+    coalesceKey?: string,
+  ) =>
+    s.openTabs.map((t) => {
+      if (t.uuid !== s.activeTabUuid || !obj) return t;
+      const history = pushHistory(t.history, deepClone(obj), coalesceKey);
+      return { ...t, object: obj, history, dirty: history.index !== history.savedIndex };
+    });
 
   // commit an in-place mutation of selectedObject so React subscribers re-render
-  const commit = () =>
+  const commit = (coalesceKey?: string) =>
     set((s) => {
       const next = reref(s.selectedObject);
       return {
         selectedObject: next,
-        openTabs: syncActiveTab(s, next),
+        openTabs: syncActiveTab(s, next, coalesceKey),
         revision: s.revision + 1,
       };
     });
@@ -237,6 +367,55 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
       openTabs: syncActiveTab(s, obj),
       revision: s.revision + 1,
     }));
+
+  // `geometry` is mirrored in two places outside the object: the Monaco buffer
+  // and the 3D canvas. A history step that changes it has to refresh both —
+  // but *only* then, since re-pushing an unchanged geometry would replace the
+  // editor's beautified buffer with the object's raw source (D8) and redraw the
+  // canvas for nothing.
+  const syncGeometryMirrors = (before: SelectableObject, after: SelectableObject) => {
+    const afterGeometry = after?.geometry?.toString() ?? "";
+    if ((before?.geometry?.toString() ?? "") === afterGeometry) return;
+    useEditorStore.getState().setCode(afterGeometry);
+    eventBus.publish("previewSelectedObject");
+  };
+
+  // Move the active tab one step through its history. `delta` is -1 for undo,
+  // +1 for redo; out-of-range steps are a no-op so callers (buttons, shortcuts)
+  // need no guard of their own.
+  const travel = (delta: 1 | -1) => {
+    const state = get();
+    const tab = state.openTabs.find((t) => t.uuid === state.activeTabUuid);
+    if (!tab) return;
+    const nextIndex = tab.history.index + delta;
+    if (nextIndex < 0 || nextIndex >= tab.history.entries.length) return;
+
+    const before = tab.history.entries[tab.history.index];
+    // Clone on the way out too: the restored copy is what the next in-place
+    // mutation will edit, and that must not reach back into the stored snapshot.
+    const restored = deepClone(tab.history.entries[nextIndex]);
+    // Reset the coalescing window, so the first edit after a step always starts
+    // a new entry rather than merging into the one we just landed on.
+    const history: TabHistory = {
+      ...tab.history,
+      index: nextIndex,
+      coalesceKey: null,
+      coalesceAt: 0,
+    };
+
+    set((s) => ({
+      selectedObject: restored,
+      openTabs: s.openTabs.map((t) =>
+        t.uuid === tab.uuid
+          ? { ...t, object: restored, history, dirty: nextIndex !== history.savedIndex }
+          : t,
+      ),
+      revision: s.revision + 1,
+    }));
+    syncGeometryMirrors(before, restored);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    log(`${delta < 0 ? "Undo" : "Redo"}: ${(restored as any)?.name}`, "info");
+  };
 
   return {
     sceneTypes: [],
@@ -411,7 +590,15 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
           workingCopy && type
             ? [
                 ...s.openTabs,
-                { uuid: objUuid, type, object: workingCopy, innerTab: "General", dirty: false },
+                {
+                  uuid: objUuid,
+                  type,
+                  object: workingCopy,
+                  innerTab: "General",
+                  dirty: false,
+                  // the as-opened state is the tab's undo floor
+                  history: newHistory(workingCopy),
+                },
               ]
             : s.openTabs,
         activeTabUuid: workingCopy && type ? objUuid : s.activeTabUuid,
@@ -470,15 +657,24 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
       }));
     },
 
+    // The tab's current history entry is now what the server holds, so undoing
+    // back to it (or redoing forward to it) makes the tab clean again.
     markTabClean: (uuid) => {
       set((s) => ({
-        openTabs: s.openTabs.map((t) => (t.uuid === uuid ? { ...t, dirty: false } : t)),
+        openTabs: s.openTabs.map((t) =>
+          t.uuid === uuid
+            ? { ...t, dirty: false, history: { ...t.history, savedIndex: t.history.index } }
+            : t,
+        ),
       }));
     },
 
     getTab: (uuid) => get().openTabs.find((t) => t.uuid === uuid),
 
     hasUnsavedTabs: () => get().openTabs.some((t) => t.dirty),
+
+    undo: () => travel(-1),
+    redo: () => travel(1),
 
     // Clears the selection *and* every open tab — used by the full refresh,
     // which replaces every collection the working copies were taken from.
@@ -1436,7 +1632,10 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
         target = target[parts[i]];
       }
       target[parts[parts.length - 1]] = value;
-      commit();
+      // Pass the path as the coalescing key: this is the keystroke-rate mutator
+      // (every character typed in a General-tab field, every edit in Monaco), so
+      // a run of edits to one field collapses into a single undo step.
+      commit(path);
     },
 
     commitSelected: () => {
