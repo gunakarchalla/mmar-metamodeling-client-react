@@ -66,10 +66,10 @@ export default function ObjectList({ type }: Props) {
 
   async function removeObject() {
     if (!selectedObject) return;
-    const res = await backendService.deleteObject(selectedObject.uuid, type);
-    if (res && res.status === 200) {
-      useSelectedObjectStore.getState().deselectObject();
-    }
+    // deleteObject -> store.removeObject already closes the deleted object's tab
+    // (and focuses a neighbour), so there is nothing to deselect here — calling
+    // deselectObject would close every *other* open tab as well.
+    await backendService.deleteObject(selectedObject.uuid, type);
   }
 
   return (

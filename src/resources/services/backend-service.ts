@@ -209,11 +209,23 @@ export class BackendService {
   }
 
   async saveSelectedObject() {
+    return this.saveObject(
+      store().getSelectedObject() as MetaObject,
+      store().getType() as string,
+    );
+  }
+
+  /**
+   * Persist one object. Split out of saveSelectedObject so a *background* tab
+   * can be saved (the unsaved-changes prompt when closing it) without first
+   * having to make it the active selection.
+   */
+  async saveObject(objectToSave: MetaObject, initialType: string) {
     try {
-      const initialType = store().getType() as string;
       const type = this.getCorrectType(initialType) as string;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const object = store().getSelectedObject() as any;
+      const object = objectToSave as any;
+      if (!object || !type) return;
       const token = localStorage.getItem("auth_token");
       let url = `metamodel/${type}/${object.uuid}?hardpatch=true`;
       if (type === "users") url = `${type}/${object.uuid}?hardpatch=true`;
@@ -237,6 +249,8 @@ export class BackendService {
       const toReturn = await response.json();
       toReturn.type = initialType;
       store().updateLocalObject(toReturn);
+      // the tab's working copy now matches the server: drop the unsaved marker
+      store().markTabClean(object.uuid);
       return toReturn;
     } catch (error) {
       log(`Error saving object: ${error}`, "error");

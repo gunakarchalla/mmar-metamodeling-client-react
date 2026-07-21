@@ -7,6 +7,7 @@ import MainBody from "@/views/main-body/MainBody";
 import SignInSignUpDialog from "@/views/auth/SignInSignUpDialog";
 import AppSnackbar from "@/views/common/AppSnackbar";
 import { useAuthStore } from "@/resources/store/authStore";
+import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { backendService } from "@/resources/services/backend-service";
 
 // Mirrors my-app.html: TopNavBar + main body + footer, plus the cross-cutting
@@ -31,6 +32,23 @@ export default function AppLayout() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Warn before a real browser navigation (reload / tab close / leaving the
+  // page) when any open tab has unsaved edits. The store is memory-only, so such
+  // a navigation drops every open tab. The in-app Refresh button has its own MUI
+  // confirm; this covers the browser-level exits it cannot intercept. Browsers
+  // show their own generic prompt and ignore any custom message, so `returnValue`
+  // just needs to be set to a non-empty value to trigger it.
+  useEffect(() => {
+    const handler = (event: BeforeUnloadEvent) => {
+      if (useSelectedObjectStore.getState().hasUnsavedTabs()) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
   return (

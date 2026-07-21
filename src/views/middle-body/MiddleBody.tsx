@@ -1,6 +1,6 @@
-import { useEffect } from "react";
 import { Box, Tabs, Tab, Typography } from "@mui/material";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import ObjectTabs from "@/views/object-tabs/ObjectTabs";
 import GeneralTab from "./general-tab/GeneralTab";
 import AttributesTab from "./structural-tabs/AttributesTab";
 import ClassesTab from "./structural-tabs/ClassesTab";
@@ -83,15 +83,12 @@ export default function MiddleBody() {
     type ? tab.types.includes(type) : false,
   );
 
-  // initialize(): when a new object is selected, reset the active tab to General.
-  useEffect(() => {
-    if (selectedObject) {
-      setSelectedTab("General");
-    }
-  }, [selectedObject?.uuid, setSelectedTab]);
+  // initialize()'s "reset to General on selection" now lives in the store: a
+  // newly opened tab starts on General, while re-focusing an existing tab
+  // restores the sub-tab it was left on (VS Code behaviour).
 
   if (!selectedObject) {
-    return null;
+    return <ObjectTabs />;
   }
 
   // Guard: if the current tab is not part of the visible set (e.g. after a type
@@ -103,6 +100,8 @@ export default function MiddleBody() {
 
   return (
     <Box>
+      <ObjectTabs />
+
       <Tabs
         className="tab-bar"
         value={activeTab ?? false}

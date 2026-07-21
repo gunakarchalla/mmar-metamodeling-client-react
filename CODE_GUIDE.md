@@ -120,6 +120,13 @@ learner:
 - **The Ctrl+S handler** is a textbook `useEffect`: on mount it adds a `keydown`
   listener to `window`, and the returned function removes it on unmount. The `[]`
   means "set this up once."
+- **The `beforeunload` guard** is a second window-level `useEffect` alongside it.
+  It cancels a real browser navigation (reload / tab close) — raising the native
+  "Leave site?" prompt — but only while `hasUnsavedTabs()` is true. This is the
+  browser-level counterpart to the Toolbar Refresh button's MUI confirm: the
+  store is memory-only, so any such navigation would silently drop every open tab
+  and its unsaved edits. Browsers ignore custom prompt text, so it just sets
+  `returnValue` to trigger the default dialog.
 
 ### The body — [src/views/main-body/MainBody.tsx](src/views/main-body/MainBody.tsx)
 
@@ -140,6 +147,7 @@ AppLayout
 │   ├─ LeftNav        (10 collapsible category lists)
 │   │   └─ ObjectList → ObjectCard (clickable tiles)
 │   ├─ MiddleBody     (tabs for the selected object)
+│   │   ├─ ObjectTabs (VS-Code-style strip of open objects)
 │   │   ├─ GeneralTab (+ type-specific variant, + VizRep editor for 3 types)
 │   │   └─ structural tabs (Attributes, Classes, …)
 │   └─ LogWindow      (scrolling log)
@@ -162,7 +170,7 @@ All five live in [src/resources/store/](src/resources/store/):
 
 | Store | Lines | Replaces | Holds |
 |---|---:|---|---|
-| [selectedObjectStore.ts](src/resources/store/selectedObjectStore.ts) | 1307 | `SelectedObjectService` | the metamodel tree + current selection |
+| [selectedObjectStore.ts](src/resources/store/selectedObjectStore.ts) | 1443 | `SelectedObjectService` | the metamodel tree + current selection + open tabs |
 | [authStore.ts](src/resources/store/authStore.ts) | 157 | `UserService` | `currentUser`, JWT helpers |
 | [editorStore.ts](src/resources/store/editorStore.ts) | 52 | vizrep's globals | the Monaco buffer + preview UI state |
 | [logStore.ts](src/resources/store/logStore.ts) | 35 | `Logger` + `MdcSnackbarService` | log list + snackbar |
@@ -206,6 +214,12 @@ of this whole codebase:
   replaces the collection item with the server's response. That is intended
   behavior, not a bug.
 
+- **`selectedObject` / `type` / `selectedTab` are a *mirror* of the active open
+  tab.** See [open tabs](#open-tabs-the-vs-code-strip) — the store keeps one
+  working copy per open object, and those three fields always reflect whichever
+  one is focused. Every existing reader of `selectedObject` therefore kept
+  working unchanged when tabs were added.
+
 - **`type` is the discriminator, not `instanceof`.** The store carries a `type`
   string (`"Class"`, `"RelationClass"`, `"Port"`, …) alongside the object, and
   *everything* branches on it. See [Type dispatch](#type-dispatch-type-never-instanceof)
@@ -219,6 +233,35 @@ of this whole codebase:
     **imperative form**, used inside event handlers/services. It just reads/calls
     *without* subscribing. You will see both all over; the rule of thumb is "hook
     form in the render body, `getState()` in callbacks and non-component code."
+
+#### Open tabs (the VS Code strip)
+
+The store holds `openTabs: OpenTab[]` (ordered as opened) plus `activeTabUuid`.
+An `OpenTab` is `{ uuid, type, object, innerTab, dirty }` — **its own working
+copy** of the object, plus which sub-tab it was left on. The rules:
+
+- `setSelectedObject(uuid)` **opens or focuses**. If a tab for that uuid already
+  exists it delegates to `activateTab` and returns early — re-reading the
+  collection there would silently throw away that tab's unsaved edits. A new tab
+  starts on `"General"`, which is where the old MiddleBody effect that reset the
+  sub-tab on every selection went; re-focusing an existing tab restores its
+  `innerTab` instead.
+- **`dirty` is set by `commit()`**, the same choke point every in-place mutator
+  and `updateSelectedField` already went through — so "has unsaved changes"
+  needs no separate bookkeeping and cannot drift. It is cleared by
+  `markTabClean(uuid)`, called from `backendService.saveObject` on a 200.
+- `closeTab(uuid)` is **unconditional** — the unsaved-changes prompt lives in the
+  UI, and by the time the store is called the decision is made. Closing the
+  active tab focuses the neighbour that slid into its slot (else the one to its
+  left); closing the last one clears the selection.
+- `deselectObject()` now means "nothing open at all" (it calls `closeAllTabs`).
+  Its only caller is `resetObjects()`, i.e. the full refresh — which replaces
+  every collection the working copies came from, so keeping them would be wrong.
+  `removeObject()` closes just the deleted object's tab.
+
+`backendService.saveObject(object, type)` exists because of this: the close
+prompt has to save a **background** tab, and `saveSelectedObject()` could only
+ever save the active one. The latter is now a one-line delegation.
 
 ### 2. authStore — login/logout/signup
 
@@ -344,22 +387,47 @@ recomputes when the list or the search term changes. "Remove selected" is enable
 only when the selection belongs to *this* section (`selectedObject` is global, so
 without that check every section's button would light up at once).
 
-`ObjectCard` is a clickable tile. Clicking it (`onButtonClicked`) **saves the
-previously-selected object, then selects this one** — the same behavior as the
-original, and the save is deliberately not awaited so the UI does not block.
+`ObjectCard` is a clickable tile. Clicking it (`onButtonClicked`) **opens the
+object in a tab, or focuses the tab it is already open in**. The original also
+saved the outgoing selection first; that was removed when tabs landed, because
+auto-saving on every card click makes an unsaved tab impossible to observe — the
+dirty marker would clear itself the moment you navigated away. Saving is now
+always deliberate: Save / Ctrl+S, or the close prompt.
+
 `isSelected` is computed by subscribing to just the selected uuid, so only the
-relevant cards re-render when selection changes; the selected card is disabled so
-it cannot be re-clicked.
+relevant cards re-render when selection changes; the active tab's card is
+disabled so it cannot be re-clicked. A second boolean selector (`openTabs.some`)
+gives background-tab cards a dotted outline — a boolean, so only cards whose
+open-state actually flipped re-render.
+
+### [ObjectTabs.tsx](src/views/object-tabs/ObjectTabs.tsx) — the open-object strip
+
+Rendered at the top of `MiddleBody`. One MUI `Tab` per entry in the store's
+`openTabs`, labelled with the object's name and a close affordance:
+
+- a **clean** tab shows a ✕;
+- a **dirty** tab shows a coloured circle instead — and, like VS Code, the circle
+  turns back into a ✕ while the pointer is over it (the label is also italic).
+
+The close affordance sits *inside* the Tab's label, so it stops both `mousedown`
+and `click` — otherwise MUI would read the same click as "select this tab".
+
+Closing a dirty tab opens the unsaved-changes dialog: **Save changes** →
+`saveObject(tab.object, tab.type)` then close then refresh; **Discard changes** →
+close, no request. **Dismissing the dialog (Esc / backdrop) does nothing** — the
+tab stays open with its edits intact. That "do nothing" is a requirement, not an
+oversight, and it is pinned by a test.
 
 ### [MiddleBody.tsx](src/views/middle-body/MiddleBody.tsx) — the tab framework
 
 Given the selected object's `type`, it filters `tabDefinitions` (14 rows, copied
 verbatim from the original) down to the tabs that apply — a `SceneType` gets
 General/Attributes/Classes/Ports/RelationClasses/Procedures; an `AttributeType`
-gets General/Reference/Table; and so on. Selecting a new object resets the active
-tab to "General" via a `useEffect` keyed on `selectedObject?.uuid`. The active tab
-lives in the **store** (`selectedTab`), not in local state; a guard falls back to
-the first visible tab if the current one is not in the visible set. It renders
+gets General/Reference/Table; and so on. The active tab lives in the **store**
+(`selectedTab`, mirrored per open tab as `innerTab`), not in local state; a guard
+falls back to the first visible tab if the current one is not in the visible set.
+Note there is **no** effect resetting the sub-tab on selection any more — the
+store does it, and only for newly opened tabs. It renders
 `GeneralTab` for the General tab and looks up a component from `TAB_COMPONENTS`
 (13 entries) for the rest.
 
@@ -430,8 +498,9 @@ Both it and `ParentChildSelect` match the search term against name, description
 TopNavBar has six menus — File, View, Edit, Diagram, Settings, Algorithms —
 which are intentionally **disabled stubs**: they open, but every item is inert,
 matching the original. Undo/Redo are likewise disabled. The working controls are
-Refresh (`triggerRefresh("Refresh button")`), Save (persist + refresh), an
-admin-only Test button that `console.log`s the selection, and Sign In/Out.
+Refresh (`triggerRefresh("Refresh button")`, but confirms first when any open tab
+has unsaved changes — a full refresh discards them all), Save (persist + refresh),
+an admin-only Test button that `console.log`s the selection, and Sign In/Out.
 
 [SignInSignUpDialog.tsx](src/views/auth/SignInSignUpDialog.tsx) does login/signup
 and fires a full refresh on success.
@@ -614,10 +683,20 @@ next to Preview — the one control row this feature owns.
 
 ## Gotchas
 
-- **Clicking any ObjectCard saves the previously selected object.** Combined with the
-  Preview flush (flow 3 above), previewing an object and then navigating away
-  rewrites its `geometry` in the database with the beautified text — a whitespace-only
-  change, but a real write.
+- **Clicking an ObjectCard no longer saves the outgoing object** (it did until tabs
+  landed). The old consequence — previewing an object and then navigating away
+  rewrote its `geometry` with the beautified text — is gone with it. What is *not*
+  gone: the Preview button still flushes the beautified buffer onto the object, so
+  clicking Preview marks the tab dirty even if you typed nothing.
+- **A full refresh discards every open tab, unsaved edits included.**
+  `resetObjects()` swaps out the collections the working copies were cloned from,
+  so keeping them would leave tabs pointing at objects that no longer exist. The
+  **Refresh button guards this** — if any tab is dirty (`hasUnsavedTabs()`), the
+  Toolbar confirms before firing the refresh; Cancel/Esc leave the tabs alone.
+  The **login path does not** guard: it's a deliberate user-context reset with
+  nothing worth preserving. A **real browser navigation** (reload / tab close) is
+  guarded separately by AppLayout's `beforeunload` handler (same `hasUnsavedTabs()`
+  check) — the store is memory-only, so a reload would drop every tab.
 - **`geometry` is typed `Function`** on the gds `MetaObject` but holds a **string** at
   runtime. Read it with `?.toString()`, write it with an `as unknown as` cast. Don't
   "fix" gds — it is shared with the server.
@@ -661,7 +740,7 @@ falls back to `.env`'s `http://mmar-server:8000` (the in-container hostname).
 
 ## Tests
 
-`npm run test` → **103 tests across 13 files**, all green. Vitest defaults to the
+`npm run test` → **134 tests across 16 files**, all green. Vitest defaults to the
 `node` environment; the component suites opt into jsdom per-file with a
 `// @vitest-environment jsdom` docblock — cheaper than a global switch, and it keeps
 the blast radius small. [src/test-setup.ts](src/test-setup.ts) imports
@@ -673,6 +752,13 @@ mount/unmount contract above) and
 [preview-pipeline.test.ts](src/views/preview-buttons/preview-pipeline.test.ts)
 (19 tests pinning the compile-before-reset and generation/queue behavior). They exist
 because each of those rules was a bug first.
+
+For the tab strip the pair is
+[selectedObjectStore.test.ts](src/resources/store/selectedObjectStore.test.ts)
+(12 tests on open/focus/close/dirty, including "an edit survives switching away and
+back") and
+[ObjectTabs.test.tsx](src/views/object-tabs/ObjectTabs.test.tsx) (10 tests on the
+circle, the prompt, and the dismiss-does-nothing rule).
 
 ---
 

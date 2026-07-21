@@ -46,6 +46,21 @@ function reref<T>(obj: T): T {
 
 const log = (value: string, status: string) => useLogStore.getState().log(value, status);
 
+/**
+ * One open editor tab (VS-Code style). Each tab owns its *own* working copy of
+ * the object, so edits made in one tab survive switching to another — the copy
+ * is only reconciled with the collection when the tab is saved.
+ */
+export interface OpenTab {
+  uuid: UUID;
+  type: string;
+  object: SelectableObject;
+  /** the middle-body sub-tab ("General", "Attributes", …) this tab was left on */
+  innerTab: string | undefined;
+  /** true when the working copy has edits that were never persisted */
+  dirty: boolean;
+}
+
 export interface SelectedObjectState {
   // collections
   sceneTypes: SceneType[];
@@ -60,10 +75,14 @@ export interface SelectedObjectState {
   procedures: Procedure[];
   files: File[];
 
-  // selection
+  // selection — always a mirror of the *active* entry in `openTabs`
   selectedObject: SelectableObject | null | undefined;
   type: string | null | undefined;
   selectedTab: string | undefined;
+
+  // open editor tabs, in the order they were opened
+  openTabs: OpenTab[];
+  activeTabUuid: UUID | null;
 
   // reactivity counter bumped on every in-place mutation of selectedObject
   revision: number;
@@ -74,6 +93,14 @@ export interface SelectedObjectState {
   updateLocalObject: (obj: MetaObject) => void;
   setSelectedObject: (objUuid: string) => void;
   deselectObject: () => void;
+
+  // --- open-tab API ---
+  activateTab: (uuid: UUID) => void;
+  closeTab: (uuid: UUID) => void;
+  closeAllTabs: () => void;
+  markTabClean: (uuid: UUID) => void;
+  getTab: (uuid: UUID) => OpenTab | undefined;
+  hasUnsavedTabs: () => boolean;
   resetObjects: () => void;
   getTypeFromUuid: (uuid: UUID) => string | null;
   getObjectsFromRole: (
@@ -185,12 +212,31 @@ export interface SelectedObjectState {
 }
 
 export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => {
+  // Push the new working copy back into the active tab entry and flag it dirty:
+  // every path through commit()/setSelected() is an *edit*, which is exactly
+  // what the tab strip's unsaved-changes dot reports.
+  const syncActiveTab = (s: SelectedObjectState, obj: SelectableObject | null | undefined) =>
+    s.openTabs.map((t) =>
+      t.uuid === s.activeTabUuid && obj ? { ...t, object: obj, dirty: true } : t,
+    );
+
   // commit an in-place mutation of selectedObject so React subscribers re-render
   const commit = () =>
-    set((s) => ({ selectedObject: reref(get().selectedObject), revision: s.revision + 1 }));
+    set((s) => {
+      const next = reref(s.selectedObject);
+      return {
+        selectedObject: next,
+        openTabs: syncActiveTab(s, next),
+        revision: s.revision + 1,
+      };
+    });
   // commit a freshly-built selectedObject instance
   const setSelected = (obj: SelectableObject | null) =>
-    set((s) => ({ selectedObject: obj, revision: s.revision + 1 }));
+    set((s) => ({
+      selectedObject: obj,
+      openTabs: syncActiveTab(s, obj),
+      revision: s.revision + 1,
+    }));
 
   return {
     sceneTypes: [],
@@ -208,6 +254,8 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
     selectedObject: undefined,
     type: undefined,
     selectedTab: undefined,
+    openTabs: [],
+    activeTabUuid: null,
     revision: 0,
 
     getSelectedObject: () => get().selectedObject,
@@ -301,6 +349,13 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
     },
 
     setSelectedObject: (objUuid) => {
+      // Already open in a tab: just focus it. Re-reading the collection here
+      // would throw away that tab's unsaved working copy.
+      if (get().openTabs.some((t) => t.uuid === objUuid)) {
+        get().activateTab(objUuid);
+        return;
+      }
+
       const type = get().getTypeFromUuid(objUuid);
       let selectedObject: SelectableObject | undefined = undefined;
       switch (type) {
@@ -346,14 +401,89 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
       // edits (e.g. the name/geometry shown on the object card in the list) are
       // not reflected in the list until saveSelectedObject -> updateLocalObject
       // replaces the collection item with the persisted server response.
-      set((s) => ({ selectedObject: reref(selectedObject), type, revision: s.revision + 1 }));
+      const workingCopy = reref(selectedObject);
+      set((s) => ({
+        selectedObject: workingCopy,
+        type,
+        // a freshly opened tab always starts on General (mirrors initialize())
+        selectedTab: "General",
+        openTabs:
+          workingCopy && type
+            ? [
+                ...s.openTabs,
+                { uuid: objUuid, type, object: workingCopy, innerTab: "General", dirty: false },
+              ]
+            : s.openTabs,
+        activeTabUuid: workingCopy && type ? objUuid : s.activeTabUuid,
+        revision: s.revision + 1,
+      }));
       const fullobj = get().getObjectFromUuid(objUuid);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       log(`Selected object: ${(fullobj as any)?.name}`, "info");
     },
 
+    // Focus an already-open tab, restoring its working copy and its sub-tab.
+    activateTab: (uuid) => {
+      const tab = get().openTabs.find((t) => t.uuid === uuid);
+      if (!tab) return;
+      set((s) => ({
+        selectedObject: tab.object,
+        type: tab.type,
+        selectedTab: tab.innerTab,
+        activeTabUuid: tab.uuid,
+        revision: s.revision + 1,
+      }));
+    },
+
+    // Close a tab unconditionally. Unsaved-changes prompting lives in the UI
+    // (ObjectTabs) — by the time this is called the decision has been made.
+    closeTab: (uuid) => {
+      const tabs = get().openTabs;
+      const index = tabs.findIndex((t) => t.uuid === uuid);
+      if (index === -1) return;
+      const remaining = tabs.filter((t) => t.uuid !== uuid);
+      set({ openTabs: remaining });
+      if (get().activeTabUuid !== uuid) return;
+      // Focus the neighbour that slid into this slot, else the one before it.
+      const next = remaining[index] ?? remaining[index - 1];
+      if (next) {
+        get().activateTab(next.uuid);
+      } else {
+        set((s) => ({
+          selectedObject: null,
+          type: null,
+          selectedTab: undefined,
+          activeTabUuid: null,
+          revision: s.revision + 1,
+        }));
+      }
+    },
+
+    closeAllTabs: () => {
+      set((s) => ({
+        openTabs: [],
+        activeTabUuid: null,
+        selectedObject: null,
+        type: null,
+        selectedTab: undefined,
+        revision: s.revision + 1,
+      }));
+    },
+
+    markTabClean: (uuid) => {
+      set((s) => ({
+        openTabs: s.openTabs.map((t) => (t.uuid === uuid ? { ...t, dirty: false } : t)),
+      }));
+    },
+
+    getTab: (uuid) => get().openTabs.find((t) => t.uuid === uuid),
+
+    hasUnsavedTabs: () => get().openTabs.some((t) => t.dirty),
+
+    // Clears the selection *and* every open tab — used by the full refresh,
+    // which replaces every collection the working copies were taken from.
     deselectObject: () => {
-      set((s) => ({ selectedObject: null, type: null, revision: s.revision + 1 }));
+      get().closeAllTabs();
     },
 
     resetObjects: () => {
@@ -1273,10 +1403,19 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
           default:
             console.warn(`Unknown type: ${type}`);
         }
+        // A deleted object cannot stay open — drop its tab without prompting.
+        get().closeTab(objectUuid);
       }
     },
 
-    setSelectedTab: (tab) => set({ selectedTab: tab }),
+    // Remembered per tab, so returning to a tab lands on the sub-tab you left it on.
+    setSelectedTab: (tab) =>
+      set((s) => ({
+        selectedTab: tab,
+        openTabs: s.openTabs.map((t) =>
+          t.uuid === s.activeTabUuid ? { ...t, innerTab: tab } : t,
+        ),
+      })),
 
     updateSelectedField: (path, value) => {
       const obj = get().selectedObject;

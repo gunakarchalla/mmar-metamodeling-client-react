@@ -1,4 +1,15 @@
-import { Box, IconButton, Tooltip } from "@mui/material";
+import { useState } from "react";
+import {
+  Box,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Button,
+} from "@mui/material";
 import UndoIcon from "@mui/icons-material/Undo";
 import RedoIcon from "@mui/icons-material/Redo";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -23,6 +34,24 @@ export default function Toolbar() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const log = useLogStore((s) => s.log);
   const triggerRefresh = useUiStore((s) => s.triggerRefresh);
+
+  // A full refresh re-fetches every collection and so discards every open tab,
+  // unsaved edits included. Confirm first when any tab is dirty; dismissing the
+  // dialog (Esc / backdrop / Cancel) leaves everything as it was.
+  const [confirmRefresh, setConfirmRefresh] = useState(false);
+
+  function requestRefresh() {
+    if (useSelectedObjectStore.getState().hasUnsavedTabs()) {
+      setConfirmRefresh(true);
+      return;
+    }
+    triggerRefresh("Refresh button");
+  }
+
+  function refreshDiscarding() {
+    setConfirmRefresh(false);
+    triggerRefresh("Refresh button");
+  }
 
   async function handleSave() {
     await backendService.saveSelectedObject();
@@ -56,7 +85,7 @@ export default function Toolbar() {
       <VDivider />
 
       <Tooltip title="refresh">
-        <IconButton size="small" onClick={() => triggerRefresh("Refresh button")}>
+        <IconButton size="small" onClick={requestRefresh}>
           <RefreshIcon />
         </IconButton>
       </Tooltip>
@@ -75,6 +104,24 @@ export default function Toolbar() {
           <SaveIcon />
         </IconButton>
       </Tooltip>
+
+      {/* Dismissing this dialog (Esc / backdrop / Cancel) does nothing — the
+          open tabs and their unsaved edits are left untouched. */}
+      <Dialog open={confirmRefresh} onClose={() => setConfirmRefresh(false)}>
+        <DialogTitle>Discard unsaved changes?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Refreshing reloads everything from the server and closes all open
+            tabs. Some tabs have unsaved changes that will be lost.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRefresh(false)}>Cancel</Button>
+          <Button onClick={refreshDiscarding} color="error" variant="contained">
+            Refresh and discard
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
