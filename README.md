@@ -55,7 +55,7 @@ service hostname does not resolve in the browser; it is host-mapped `8000:8000`)
 
 ```bash
 npm install
-npm run dev        # Vite dev server on http://localhost:5173
+npm run dev        # Vite dev server on http://localhost:8075
 npm run build      # tsc --noEmit && vite build
 npm run preview    # serve the production build
 npm run typecheck  # tsc --noEmit
