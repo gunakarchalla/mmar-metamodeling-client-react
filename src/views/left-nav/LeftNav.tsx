@@ -20,8 +20,9 @@ interface Section {
   adminOnly?: boolean;
 }
 
-// Order mirrors left-nav.html (and the default full-reload order in left-nav.ts;
-// note Users is loaded last).
+// Order mirrors left-nav.html. This is render order only — the full reload
+// fetches every section concurrently (see `refresh`), so the original's
+// "Users is loaded last" no longer describes when the request goes out.
 const SECTIONS: Section[] = [
   { type: "SceneType", label: "Scene types", load: () => backendService.getSceneTypes() },
   { type: "Class", label: "Classes", load: () => backendService.getClasses() },
@@ -73,13 +74,25 @@ export default function LeftNav() {
         return;
       }
 
-      // default: full reload
+      // default: full reload. The sections are independent (each writes its own
+      // store collection), so they load concurrently rather than one after the
+      // other — ten sequential round-trips were the bulk of the startup wait.
+      // Each clears its own spinner as it lands, so the lists fill in
+      // progressively instead of all at once. `finally` per section (rather than
+      // one clear after Promise.all) keeps a single failed request from leaving
+      // that accordion spinning forever, which the sequential loop did do: it
+      // aborted on the first throw and left every later section loading.
       store.resetObjects();
       setLoading({ ...ALL_LOADING });
-      for (const s of SECTIONS) {
-        await s.load();
-        setLoadingFor(s.type, false);
-      }
+      await Promise.all(
+        SECTIONS.map(async (s) => {
+          try {
+            await s.load();
+          } finally {
+            setLoadingFor(s.type, false);
+          }
+        }),
+      );
     },
     [setLoadingFor],
   );

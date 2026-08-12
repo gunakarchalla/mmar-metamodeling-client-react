@@ -1,4 +1,5 @@
-import { TextField, Box, Stack } from "@mui/material";
+import { Suspense, lazy } from "react";
+import { TextField, Box, Stack, CircularProgress } from "@mui/material";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { BoundText, CoordFieldset } from "./fields";
 import GeneralTabClass from "./GeneralTabClass";
@@ -7,9 +8,34 @@ import GeneralTabAttrType from "./GeneralTabAttrType";
 import GeneralTabUsrGrp from "./GeneralTabUsrGrp";
 import GeneralTabRelationclass from "./GeneralTabRelationclass";
 import GeneralTabUser from "./GeneralTabUser";
-import GeneralTabProcedure from "./GeneralTabProcedure";
 import GeneralTabFile from "./GeneralTabFile";
-import VizRepGeometryEditor from "./vizrep-editor/VizRepGeometryEditor";
+
+// Code-split boundary for the two heavy libraries. Monaco (~3 MB) and three.js
+// reach the bundle through exactly these two subtrees and nowhere else:
+//   VizRepGeometryEditor -> CodeEditor (monaco)
+//                        -> PreviewButtons -> preview-pipeline -> @/engine (three)
+//                        -> ThreeCanvas                        -> @/engine (three)
+//   GeneralTabProcedure  -> BoundCodeEditor (monaco)
+// Both are already rendered only for specific `type` values, so a static import
+// meant every user paid the download and parse cost up front — before login, and
+// even when they never open a Class/RelationClass/Port/Procedure. Splitting BOTH
+// is required to move Monaco: leaving either one eager keeps it in the main
+// chunk.
+const VizRepGeometryEditor = lazy(() => import("./vizrep-editor/VizRepGeometryEditor"));
+const GeneralTabProcedure = lazy(() => import("./GeneralTabProcedure"));
+
+// Placeholder shown while a split chunk downloads. It reserves the height the
+// real block occupies (VizRep = 300px editor + 44px buttons + 400px canvas) so
+// the surrounding form does not jump when the chunk lands.
+function ChunkFallback({ height }: { height: number }) {
+  return (
+    <Box
+      sx={{ height, display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <CircularProgress size={24} />
+    </Box>
+  );
+}
 
 // Ports general-tab.{ts,html}. The shared base fields (uuid/name/description/
 // geometry/coordinates/rotation) plus a conditional variant sub-component
@@ -75,7 +101,9 @@ export default function GeneralTab() {
             Class / RelationClass / Port (D1); every other type keeps the plain
             geometry textarea, relocated here. */}
         {type === "Class" || type === "RelationClass" || type === "Port" ? (
-          <VizRepGeometryEditor />
+          <Suspense fallback={<ChunkFallback height={744} />}>
+            <VizRepGeometryEditor />
+          </Suspense>
         ) : (
           <BoundText
             label="Geometry"
@@ -95,7 +123,11 @@ export default function GeneralTab() {
       {type === "UserGroup" && <GeneralTabUsrGrp />}
       {type === "RelationClass" && <GeneralTabRelationclass />}
       {type === "User" && <GeneralTabUser />}
-      {type === "Procedure" && <GeneralTabProcedure />}
+      {type === "Procedure" && (
+        <Suspense fallback={<ChunkFallback height={300} />}>
+          <GeneralTabProcedure />
+        </Suspense>
+      )}
       {type === "File" && <GeneralTabFile />}
     </Box>
   );

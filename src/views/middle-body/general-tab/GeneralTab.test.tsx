@@ -5,7 +5,10 @@
 // Every other type keeps the plain geometry textarea, relocated after Rotation.
 //
 // VizRepGeometryEditor is stubbed so this suite stays free of Monaco and three.js; what
-// is under test is the dispatch, not the block's contents.
+// is under test is the dispatch, not the block's contents. Both it and
+// GeneralTabProcedure are code-split (React.lazy in GeneralTab), so assertions on
+// them are async — vi.mock still intercepts the dynamic import, it just resolves
+// a microtask later.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
@@ -54,27 +57,42 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("GeneralTab — geometry field dispatch (D1)", () => {
+  // VizRepGeometryEditor and GeneralTabProcedure are React.lazy children, so the
+  // first render of each shows the Suspense fallback and the real element only
+  // appears once the (mocked) dynamic import resolves — hence findBy, not queryBy.
+  // React.lazy caches the resolved module, so a synchronous queryBy happens to
+  // pass in every test after the first one to render it; awaiting keeps the
+  // assertion independent of which test ran first.
   it.each(["Class", "RelationClass", "Port"])(
     "renders the VizRep editor and no textarea for %s",
-    (type) => {
+    async (type) => {
       selectAs(type);
       render(<GeneralTab />);
 
-      expect(vizrepBlock()).not.toBeNull();
+      expect(await screen.findByTestId("vizrep-editor")).not.toBeNull();
       expect(geometryTextarea()).toBeNull();
     },
   );
 
   it.each(["User", "UserGroup", "Attribute", "AttributeType", "SceneType", "Procedure", "File"])(
     "renders the plain geometry textarea and no VizRep editor for %s",
-    (type) => {
+    async (type) => {
       selectAs(type);
       render(<GeneralTab />);
 
+      expect(await screen.findByLabelText(/geometry/i)).not.toBeNull();
       expect(vizrepBlock()).toBeNull();
-      expect(geometryTextarea()).not.toBeNull();
     },
   );
+
+  it("resolves the lazy Procedure definition editor behind its Suspense boundary", async () => {
+    selectAs("Procedure");
+    render(<GeneralTab />);
+
+    // The Monaco stand-in only exists inside GeneralTabProcedure, so finding it
+    // proves the split chunk mounted rather than staying on the fallback.
+    expect(await screen.findByTestId("monaco")).not.toBeNull();
+  });
 
   it("renders nothing when no object is selected", () => {
     const { container } = render(<GeneralTab />);
@@ -86,12 +104,12 @@ describe("GeneralTab — geometry field placement (D4)", () => {
   // Node.DOCUMENT_POSITION_FOLLOWING
   const FOLLOWING = 4;
 
-  it("places the VizRep block after Rotation and before the type-specific fields", () => {
+  it("places the VizRep block after Rotation and before the type-specific fields", async () => {
     selectAs("Class");
     render(<GeneralTab />);
 
     const rotation = screen.getByText("Rotation");
-    const block = screen.getByTestId("vizrep-editor");
+    const block = await screen.findByTestId("vizrep-editor");
     // "Reusable" is a GeneralTabClass field — the variant section.
     const variantField = screen.getByText("Reusable");
 
