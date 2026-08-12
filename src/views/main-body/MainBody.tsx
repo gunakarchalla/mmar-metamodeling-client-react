@@ -83,8 +83,16 @@ export default function MainBody() {
       autoSaveId="mmar-metamodeling-layout"
       style={{ flex: 1, minHeight: 0 }}
     >
-      {/* Left-nav: object-category accordions */}
-      <Panel defaultSize={18} minSize={12} maxSize={35} style={{ overflowY: "auto" }}>
+      {/* Left-nav: object-category accordions. `overscrollBehavior: contain`
+          keeps a fast flick that reaches the end of the list from chaining its
+          leftover delta into the document (see the shell's overflow guard in
+          main.tsx) — the same reason it is set on the other two panels. */}
+      <Panel
+        defaultSize={18}
+        minSize={12}
+        maxSize={35}
+        style={{ overflowY: "auto", overscrollBehavior: "contain" }}
+      >
         <LeftNav />
       </Panel>
 
@@ -92,7 +100,15 @@ export default function MainBody() {
 
       {/* Middle-body: object tabs (General + structural/relational tabs) */}
       <Panel minSize={30}>
-        <Box className="middle-body" sx={{ height: "100%", overflowY: "auto", p: 1 }}>
+        <Box
+          className="middle-body"
+          sx={{
+            height: "100%",
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+            p: 1,
+          }}
+        >
           <MiddleBody />
         </Box>
       </Panel>

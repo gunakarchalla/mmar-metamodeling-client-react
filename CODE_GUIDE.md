@@ -50,7 +50,8 @@ Before the walkthrough, here are the React ideas that appear everywhere:
    component rendering another component.
 
 2. **Props** are the arguments you pass to a component, like HTML attributes:
-   `<ObjectCard object={x} type="Class" />`. The child receives `{ object, type }`.
+   `<ObjectListItem object={x} type="Class" />`. The child receives
+   `{ object, type }`.
 
 3. **State + re-rendering.** When data a component displays changes, React
    **re-runs the function** and updates the screen. The two ways data changes
@@ -166,7 +167,7 @@ AppLayout
 ├─ TopNavBar          (6 menus, undo/redo/refresh/test/save, sign-in button)
 ├─ MainBody
 │   ├─ LeftNav        (10 collapsible category lists)
-│   │   └─ ObjectList → ObjectCard (clickable tiles)
+│   │   └─ ObjectList → ObjectListItem (clickable rows)
 │   ├─ MiddleBody     (tabs for the selected object)
 │   │   ├─ ObjectTabs (VS-Code-style strip of open objects)
 │   │   ├─ GeneralTab (+ type-specific variant, + VizRep editor for 3 types)
@@ -460,27 +461,30 @@ reload (a `didMount` ref makes the very first run always a full reload).
 Each section is an MUI `Accordion` that shows a progress bar while loading, then
 an `ObjectList`.
 
-### [ObjectList.tsx](src/views/object-list/ObjectList.tsx) → [ObjectCard.tsx](src/views/object-card/ObjectCard.tsx)
+### [ObjectList.tsx](src/views/object-list/ObjectList.tsx) → [ObjectListItem.tsx](src/views/object-list-item/ObjectListItem.tsx)
 
 `ObjectList` reads its slice of the store *by type* (`TYPE_TO_FIELD` maps
 `"Class"` → the `classes` array), provides search/add/remove, and renders one
-`ObjectCard` per item. Note the `useMemo` for the sorted+filtered list — it only
+`ObjectListItem` per item inside a dense MUI `List`. Note the `useMemo` for the
+sorted+filtered list — it only
 recomputes when the list or the search term changes. "Remove selected" is enabled
 only when the selection belongs to *this* section (`selectedObject` is global, so
 without that check every section's button would light up at once).
 
-`ObjectCard` is a clickable tile. Clicking it (`onButtonClicked`) **opens the
-object in a tab, or focuses the tab it is already open in**. The original also
-saved the outgoing selection first; that was removed when tabs landed, because
-auto-saving on every card click makes an unsaved tab impossible to observe — the
-dirty marker would clear itself the moment you navigated away. Saving is now
-always deliberate: Save / Ctrl+S, or the close prompt.
+`ObjectListItem` is a clickable row — a small icon (the object's own VizRep
+icon, via the store's `getIcon`) followed by its name on one dense line, with the
+description in a tooltip. Clicking it (`onButtonClicked`) **opens the object in a
+tab, or focuses the tab it is already open in**. The original also saved the
+outgoing selection first; that was removed when tabs landed, because auto-saving
+on every click makes an unsaved tab impossible to observe — the dirty marker
+would clear itself the moment you navigated away. Saving is now always
+deliberate: Save / Ctrl+S, or the close prompt.
 
 `isSelected` is computed by subscribing to just the selected uuid, so only the
-relevant cards re-render when selection changes; the active tab's card is
-disabled so it cannot be re-clicked. A second boolean selector (`openTabs.some`)
-gives background-tab cards a dotted outline — a boolean, so only cards whose
-open-state actually flipped re-render.
+relevant rows re-render when selection changes; the active tab's row is disabled
+(with `opacity: 1` restored, so it stays legible) so it cannot be re-clicked. A
+second boolean selector (`openTabs.some`) gives background-tab rows a dashed left
+border — a boolean, so only rows whose open-state actually flipped re-render.
 
 ### [ObjectTabs.tsx](src/views/object-tabs/ObjectTabs.tsx) — the open-object strip
 
@@ -768,8 +772,26 @@ next to Preview — the one control row this feature owns.
 
 ## Gotchas
 
-- **Clicking an ObjectCard no longer saves the outgoing object** (it did until tabs
-  landed). The old consequence — previewing an object and then navigating away
+- **The document itself must never scroll — `html, body { overflow: hidden }` in
+  the theme's `MuiCssBaseline` is load-bearing.** The shell is a fixed-viewport
+  layout (`AppLayout` is `100vh`; the left nav, middle body and log window each
+  scroll inside themselves), but nothing enforced that at the document level, so
+  anything sticking out past the viewport grew the document's scroll area and
+  flashed an app-wide scrollbar. The source is `Tooltip`: it is portalled into
+  `<body>`, and although MUI renders it `position: fixed` at first, Popper.js
+  overwrites that on its first update with its default `absolute` strategy plus a
+  `transform` — and an absolutely positioned, transformed box *does* count towards
+  document overflow. Popper's `preventOverflow` guards only the main axis by
+  default, so the `placement="left"`/`"right"` tooltips on log entries and
+  left-nav rows hang past the top/bottom edge; scrolling either list fast keeps
+  opening and repositioning them under the moving cursor, which is when the
+  flicker shows up. Two more pieces go with the clip: the theme turns on
+  `preventOverflow.altAxis` so those tooltips are nudged back into view rather
+  than silently clipped, and the three scroll panels set
+  `overscroll-behavior: contain` so a fast flick that reaches the end of a list
+  does not chain its leftover delta into the document.
+- **Clicking a left-nav list row no longer saves the outgoing object** (it did
+  until tabs landed). The old consequence — previewing an object and then navigating away
   rewrote its `geometry` with the beautified text — is gone with it. What is *not*
   gone: the Preview button still flushes the beautified buffer onto the object, so
   clicking Preview marks the tab dirty even if you typed nothing.

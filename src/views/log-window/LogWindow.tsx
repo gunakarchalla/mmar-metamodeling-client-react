@@ -56,7 +56,15 @@ export default function LogWindow() {
   }, [logArray.length]);
 
   return (
-    <Box sx={{ height: "100%", overflowY: "auto", p: 1 }} ref={scrollRef}>
+    <Box
+      sx={{
+        height: "100%",
+        overflowY: "auto",
+        overscrollBehavior: "contain",
+        p: 1,
+      }}
+      ref={scrollRef}
+    >
       <Typography variant="h6" sx={{ m: 0, p: 0, display: "flex", alignItems: "center" }}>
         Log
         <IconButton size="small" onClick={() => setOpen(true)}>

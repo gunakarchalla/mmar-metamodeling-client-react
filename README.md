@@ -25,7 +25,7 @@ mirroring the original's `SelectedObjectService` + `EventAggregator`.
 - **`src/views/`** — the UI as React components (MUI), one folder per region:
   `layout/`, `top-nav-bar/`, `left-nav/`, `middle-body/` (tab framework +
   General-tab variants + structural/relational tabs), `object-list/`,
-  `object-card/`, `common/` (shared `ModalObjectSelect`, `ParentChildSelect`,
+  `object-list-item/`, `common/` (shared `ModalObjectSelect`, `ParentChildSelect`,
   `AppSnackbar`), `log-window/`, `footer/`, `right-nav/`, `auth/`.
 
 ## Shared DTOs (`@gds`)

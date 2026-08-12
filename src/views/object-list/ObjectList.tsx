@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Box, TextField, Button, InputAdornment, Icon, Divider } from "@mui/material";
+import { Box, TextField, Button, InputAdornment, Icon, Divider, List } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { MetaObject } from "@gds/models/meta/Metamodel_metaobjects.structure";
@@ -9,7 +9,7 @@ import {
 } from "@/resources/store/selectedObjectStore";
 import { useAuthStore } from "@/resources/store/authStore";
 import { backendService } from "@/resources/services/backend-service";
-import ObjectCard from "@/views/object-card/ObjectCard";
+import ObjectListItem from "@/views/object-list-item/ObjectListItem";
 
 interface Props {
   type: string;
@@ -30,7 +30,7 @@ const TYPE_TO_FIELD: Record<string, keyof SelectedObjectState> = {
 };
 
 // Ports object-list.{ts,html}. Reads its slice from the store by `type`, lets
-// the user search/add/remove, and renders an ObjectCard per item.
+// the user search/add/remove, and renders an ObjectListItem per item.
 export default function ObjectList({ type }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -43,7 +43,7 @@ export default function ObjectList({ type }: Props) {
   const isAuthenticated = useAuthStore((s) => s.currentUser != null);
 
   // `selectedObject`/`selectedType` are global to the store, so only this
-  // section should treat its object as selected (otherwise selecting a card in
+  // section should treat its object as selected (otherwise selecting a row in
   // one section would enable "Remove selected" in every section).
   const isSelectedInThisSection = selectedObject != null && selectedType === type;
 
@@ -113,14 +113,11 @@ export default function ObjectList({ type }: Props) {
         </Button>
       </Box>
       <Divider className="solid_hr_list" sx={{ mb: 1 }} />
-      <Box
-        className="object-card-list"
-        sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}
-      >
+      <List className="object-item-list" dense disablePadding>
         {filteredItems.map((object) => (
-          <ObjectCard key={object.uuid} object={object} type={type} />
+          <ObjectListItem key={object.uuid} object={object} type={type} />
         ))}
-      </Box>
+      </List>
     </Box>
   );
 }
