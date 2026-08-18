@@ -1,15 +1,16 @@
 import { create } from "zustand";
 
-// Replaces the original Aurelia EventAggregator "refresh" channel.
-// Components that need to reload data subscribe to `refreshNonce`; anything
-// that previously called `eventAggregator.publish("refresh", ...)` calls
-// `triggerRefresh()` instead.
-//
-// `refreshType` mirrors the original payload distinction handled by
-// left-nav.ts `refresh(refreshType)`:
-//   - "Refresh button" / login  -> full reload of every list (resetObjects).
-//   - undefined (post-save/create) -> reload only the currently selected type,
-//     preserving the current selection.
+/**
+ * The signal that tells the left navigation to reload from the server.
+ *
+ * `refreshNonce` is bumped on every request; subscribers watch it rather than a
+ * boolean so two consecutive refreshes are two events. `refreshType` says how
+ * much to reload:
+ *
+ *   - named ("Refresh button", signing in) — reload every list from scratch;
+ *   - unnamed (after a save or a create)   — reload only the type being edited,
+ *     leaving the rest of the tree and the current selection alone.
+ */
 interface UiState {
   refreshNonce: number;
   refreshType: string | undefined;

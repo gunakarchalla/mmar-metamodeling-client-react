@@ -1,6 +1,6 @@
 import { Box, Typography, Link } from "@mui/material";
 
-// Mirrors footer.html: centered copyright + GitHub badge. Otherwise an inert stub.
+/** Copyright, licence and a link to the project on GitHub. */
 export default function AppFooter() {
   return (
     <Box

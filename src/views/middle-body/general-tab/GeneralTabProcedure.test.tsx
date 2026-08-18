@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // The Procedure definition is JavaScript, so it is edited in Monaco rather than the
-// plain textarea the Aurelia original used. Monaco is stubbed with a textarea carrying
+// a plain textarea. Monaco is stubbed with a textarea carrying
 // the same value/onChange contract — what is under test is the binding to
 // selectedObject.definition, not the editor's internals.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

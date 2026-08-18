@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The wrapper's selection-load effect (P5.3 / plan §5).
+// The wrapper's selection-load effect.
 //
 // Its dependency is `selectedObject?.uuid`, not the object — because D2 live-commit
 // bumps `revision` and rerefs `selectedObject` on every keystroke. Keying on the object
@@ -29,7 +29,7 @@ import { eventBus } from "@/resources/services/event-bus";
 
 const buffer = () => useEditorStore.getState().codeEditorValue;
 
-/** gds types `geometry` as Function though it holds a string at runtime (plan §4.4). */
+/** The shared data structures type `geometry` as a function; it holds a string. */
 function makeClass(uuid: string, geometry?: string): Class {
   const cls = new Class(uuid, `Class-${uuid}`, false, false);
   if (geometry !== undefined) cls.geometry = geometry as unknown as typeof cls.geometry;
@@ -49,7 +49,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("VizRepGeometryEditor — layout", () => {
-  it("stacks the editor, the preview buttons and the canvas (D7)", () => {
+  it("stacks the editor, the preview buttons and the canvas", () => {
     select(makeClass("a", "code"));
     render(<VizRepGeometryEditor />);
 

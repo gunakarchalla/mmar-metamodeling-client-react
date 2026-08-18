@@ -1,11 +1,11 @@
 /**
  * Which modifier key means "command" here: ⌘ on macOS, Ctrl on Windows/Linux.
  *
- * Detection deliberately mirrors Monaco's own (`vs/base/common/platform.js`
- * tests the user agent for a "Macintosh" substring, and `KeyMod.CtrlCmd` decodes
- * to metaKey on macOS / ctrlKey elsewhere). The code editor binds its shortcuts
- * through `CtrlCmd` while the rest of the app binds them on `window`, so the two
- * must agree about the platform or one of them would obey the wrong key.
+ * Detection deliberately matches the code editor's own, which tests the user
+ * agent for a "Macintosh" substring. The editor binds its shortcuts through its
+ * own platform-aware modifier while the rest of the app binds them on `window`,
+ * so the two must agree about the platform or one of them would obey the wrong
+ * key.
  */
 export function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && navigator.userAgent.indexOf("Macintosh") >= 0;

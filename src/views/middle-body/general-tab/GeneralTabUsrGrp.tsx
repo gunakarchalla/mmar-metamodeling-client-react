@@ -1,9 +1,9 @@
-import { Box, FormControlLabel, Switch, Typography, Stack } from "@mui/material";
-import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import { FormControlLabel, Switch, Stack } from "@mui/material";
+import FieldsetSection from "@/views/common/FieldsetSection";
+import { useSelectedObjectForm } from "./useSelectedObjectForm";
 
-// Ports general-tab-usr-grp.{ts,html}: the seven "can create …" switches on a
-// UserGroup.
-const FLAGS: { path: string; label: string }[] = [
+/** Which kinds of meta object members of this user group are allowed to create. */
+const CREATION_RIGHTS = [
   { path: "can_create_scenetype", label: "can create scenetypes" },
   { path: "can_create_attribute", label: "can create attributes" },
   { path: "can_create_attribute_type", label: "can create attribute type" },
@@ -14,34 +14,26 @@ const FLAGS: { path: string; label: string }[] = [
 ];
 
 export default function GeneralTabUsrGrp() {
-  const obj = useSelectedObjectStore((s) => s.selectedObject);
-  const update = useSelectedObjectStore((s) => s.updateSelectedField);
-  if (!obj) return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const o = obj as any;
+  const { object, update } = useSelectedObjectForm();
+  if (!object) return null;
+  const rights = object as unknown as Record<string, boolean>;
 
   return (
-    <Box
-      component="fieldset"
-      sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1.5, mt: 2 }}
-    >
-      <Typography component="legend" variant="caption" color="text.secondary">
-        User group
-      </Typography>
+    <FieldsetSection legend="User group">
       <Stack>
-        {FLAGS.map((f) => (
+        {CREATION_RIGHTS.map((right) => (
           <FormControlLabel
-            key={f.path}
+            key={right.path}
             control={
               <Switch
-                checked={!!o[f.path]}
-                onChange={(e) => update(f.path, e.target.checked)}
+                checked={!!rights[right.path]}
+                onChange={(event) => update(right.path, event.target.checked)}
               />
             }
-            label={f.label}
+            label={right.label}
           />
         ))}
       </Stack>
-    </Box>
+    </FieldsetSection>
   );
 }

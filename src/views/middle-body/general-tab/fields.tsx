@@ -1,9 +1,26 @@
-import { TextField, Box, Stack, Typography } from "@mui/material";
+import { Stack } from "@mui/material";
+import { TextField } from "@mui/material";
+import FieldsetSection from "@/views/common/FieldsetSection";
 
-type UpdateFn = (path: string, value: unknown) => void;
+/**
+ * Form inputs bound to a path on the object being edited, e.g. `"name"` or
+ * `"coordinates_2d.x"`. Each is fully controlled: it renders the object's
+ * current value and writes every change straight back through `update`, which
+ * commits it to the store (and so to the tab's undo history).
+ */
 
-// A controlled text/textarea field bound to a (possibly nested) path of the
-// selected object. Mirrors `value.bind="selectedObject.<path>"`.
+/** Writes `value` to `path` on the object being edited. */
+export type UpdateFn = (path: string, value: unknown) => void;
+
+/** The object being edited is a union of every meta type; fields index into it. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Bindable = any;
+
+/** Read a (possibly nested) path, tolerating absent intermediate objects. */
+function readPath(obj: Bindable, path: string): unknown {
+  return path.split(".").reduce<Bindable>((cur, key) => cur?.[key], obj);
+}
+
 export function BoundText({
   label,
   path,
@@ -15,8 +32,7 @@ export function BoundText({
 }: {
   label: string;
   path: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  obj: any;
+  obj: Bindable;
   update: UpdateFn;
   multiline?: boolean;
   rows?: number;
@@ -25,8 +41,8 @@ export function BoundText({
   return (
     <TextField
       label={label}
-      value={readPath(obj, path) ?? ""}
-      onChange={(e) => update(path, e.target.value)}
+      value={(readPath(obj, path) as string | undefined) ?? ""}
+      onChange={(event) => update(path, event.target.value)}
       multiline={multiline}
       rows={multiline ? rows : undefined}
       inputProps={maxLength ? { maxLength } : undefined}
@@ -36,7 +52,7 @@ export function BoundText({
   );
 }
 
-// A controlled numeric field bound to a nested path. Empty -> null, else Number.
+/** A numeric field. An emptied input clears the value rather than storing 0. */
 export function BoundNumber({
   label,
   path,
@@ -45,18 +61,16 @@ export function BoundNumber({
 }: {
   label: string;
   path: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  obj: any;
+  obj: Bindable;
   update: UpdateFn;
 }) {
-  const value = readPath(obj, path);
   return (
     <TextField
       label={label}
       type="number"
-      value={value ?? ""}
-      onChange={(e) =>
-        update(path, e.target.value === "" ? null : Number(e.target.value))
+      value={(readPath(obj, path) as number | undefined) ?? ""}
+      onChange={(event) =>
+        update(path, event.target.value === "" ? null : Number(event.target.value))
       }
       fullWidth
       size="small"
@@ -64,8 +78,7 @@ export function BoundNumber({
   );
 }
 
-// An X/Y/Z coordinate fieldset bound to obj.<base>.{x,y,z}. Mirrors the bordered
-// fieldsets in general-tab.html.
+/** An X/Y/Z row bound to `obj.<base>.{x,y,z}`. */
 export function CoordFieldset({
   legend,
   base,
@@ -74,39 +87,22 @@ export function CoordFieldset({
 }: {
   legend: string;
   base: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  obj: any;
+  obj: Bindable;
   update: UpdateFn;
 }) {
   return (
-    <Box
-      sx={{
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: 1,
-        p: 1.5,
-      }}
-    >
-      <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
-        {legend}
-      </Typography>
+    <FieldsetSection legend={legend} dense>
       <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-        <BoundNumber label="X" path={`${base}.x`} obj={obj} update={update} />
-        <BoundNumber label="Y" path={`${base}.y`} obj={obj} update={update} />
-        <BoundNumber label="Z" path={`${base}.z`} obj={obj} update={update} />
+        {(["x", "y", "z"] as const).map((axis) => (
+          <BoundNumber
+            key={axis}
+            label={axis.toUpperCase()}
+            path={`${base}.${axis}`}
+            obj={obj}
+            update={update}
+          />
+        ))}
       </Stack>
-    </Box>
+    </FieldsetSection>
   );
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function readPath(obj: any, path: string): any {
-  const parts = path.split(".");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let cur: any = obj;
-  for (const p of parts) {
-    if (cur === null || cur === undefined) return undefined;
-    cur = cur[p];
-  }
-  return cur;
 }

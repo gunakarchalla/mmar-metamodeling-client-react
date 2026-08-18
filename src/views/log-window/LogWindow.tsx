@@ -43,9 +43,11 @@ function LogEntries() {
   );
 }
 
-// Mirrors log-window: a scrollable "Log" panel with an expand-to-dialog button.
-// logArray is newest-first (logStore unshifts), so newest entries are at the top;
-// we keep the scroll pinned to the top when new entries arrive.
+/**
+ * The log panel: everything the app has reported this session, newest first,
+ * with a button that opens the same list in a larger dialog. The panel is kept
+ * scrolled to the top so a new entry is visible the moment it arrives.
+ */
 export default function LogWindow() {
   const [open, setOpen] = useState(false);
   const logArray = useLogStore((s) => s.logArray);

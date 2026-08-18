@@ -1,42 +1,40 @@
 import type { AttributeInstance } from "@gds/models/instance/Instance_attributes.structure";
 
 /**
- * Tiny typed event emitter replacing the Aurelia EventAggregator. It deliberately
- * exposes `.subscribe(event, cb)` / `.publish(event, payload)` with the same
- * names/shape as EventAggregator so the engine ports (P3-P5) and views barely
- * change. `.subscribe` returns a disposable `{ dispose() }` (mirroring
- * EventAggregator) so React effects can unsubscribe in their cleanup.
+ * A small typed publish/subscribe bus.
  *
- * Channels in use (see plan.md §6):
- *   login                                  -> boolean  (login success)
- *   previewButtonClicked                   -> void
- *   previewSelectedObject                  -> void     (not in plan §6; published by
- *                                                       VizRepGeometryEditor when the
- *                                                       selection changes, so the canvas
- *                                                       follows the selected object)
- *   changeCodeEditorCode                   -> void     (beautify + setValue)
- *   updatedGeometryValue                   -> void
- *   checkForVizRepUpdate                   -> void
- *   checkForVizRepUpdateByAttributeInstance-> AttributeInstance
- *   updateAttributeGui                     -> void
- *   removeAttributeGui                     -> void
- *   ctrlPlusSPressed                       -> void
- *   tabChanged                             -> void     (not in plan §6; published by
- *                                                       instance-utility / the tab bar
- *                                                       when the active tab changes —
- *                                                       kept for port fidelity)
+ * It carries the handful of signals that cross the boundary between React and
+ * the 3D engine, where neither side can hold a reference to the other: the
+ * engine has no components to call into, and the components must not import the
+ * engine eagerly (its module scope creates a WebGL renderer).
+ *
+ * `subscribe` returns a disposable, so a React effect unsubscribes by returning
+ * `sub.dispose`.
  */
+
+/** Every signal the bus carries, and what each one delivers. */
 export interface EventPayloads {
+  /** A sign-in succeeded. */
   login: boolean;
+  /** The Preview button was pressed; the editor should flush its buffer. */
   previewButtonClicked: void;
-  previewSelectedObject: void;
-  changeCodeEditorCode: void;
+  /** The editor flushed its buffer; the pipeline should rebuild the scene. */
   updatedGeometryValue: void;
+  /** The selection changed; the canvas should redraw for the new object. */
+  previewSelectedObject: void;
+  /** New source was loaded into the editor; it should be beautified. */
+  changeCodeEditorCode: void;
+  /** Something may have changed a VizRep; the engine should re-check. */
   checkForVizRepUpdate: void;
+  /** As above, but limited to what depends on one attribute instance. */
   checkForVizRepUpdateByAttributeInstance: AttributeInstance;
+  /** Show the attribute controls for the object currently drawn. */
   updateAttributeGui: void;
+  /** Tear those controls down. */
   removeAttributeGui: void;
+  /** The save chord was pressed inside the 3D canvas. */
   ctrlPlusSPressed: void;
+  /** The engine switched to a different scene tab. */
   tabChanged: void;
 }
 
@@ -46,8 +44,8 @@ export interface Subscription {
   dispose(): void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Callback = (payload: any) => void;
+/** Erased callback type; `subscribe` and `publish` restore the payload type. */
+type Callback = (payload: never) => void;
 
 class EventBus {
   private listeners = new Map<EventName, Set<Callback>>();
@@ -61,10 +59,10 @@ class EventBus {
       set = new Set<Callback>();
       this.listeners.set(event, set);
     }
-    set.add(callback as Callback);
+    set.add(callback as unknown as Callback);
     return {
       dispose: () => {
-        this.listeners.get(event)?.delete(callback as Callback);
+        this.listeners.get(event)?.delete(callback as unknown as Callback);
       },
     };
   }
@@ -75,9 +73,10 @@ class EventBus {
   ): void {
     const set = this.listeners.get(event);
     if (!set) return;
-    // copy to a snapshot so a handler that (un)subscribes mid-dispatch is safe
-    for (const cb of [...set]) {
-      cb(payload[0]);
+    // Dispatch over a snapshot, so a handler that subscribes or unsubscribes
+    // while it runs does not disturb this round.
+    for (const callback of [...set]) {
+      (callback as (payload: unknown) => void)(payload[0]);
     }
   }
 }

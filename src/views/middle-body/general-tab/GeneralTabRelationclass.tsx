@@ -1,80 +1,47 @@
-import { Box, Typography, Stack, Card, CardContent, Tooltip, Button } from "@mui/material";
+import { Typography, Stack, Button } from "@mui/material";
 import RemoveIcon from "@mui/icons-material/Remove";
-import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { Relationclass } from "@gds/models/meta/Metamodel_relationclasses.structure";
+import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import FieldsetSection from "@/views/common/FieldsetSection";
+import ObjectPreviewCard from "@/views/common/ObjectPreviewCard";
 import InlineObjectPicker from "./InlineObjectPicker";
+import { useSelectedObjectForm } from "./useSelectedObjectForm";
 
-// Ports general-tab-relationclass.{ts,html}: bendpoint selection on a
-// RelationClass. The bendpoint is a Class uuid; the card shows the referenced
-// object, "Remove Bendpoint" clears it, and the picker (objecttype "Bendpoint")
-// sets it.
+/**
+ * Relation-class-only fields: the bendpoint, a class drawn at the corner where
+ * the relation changes direction.
+ */
 export default function GeneralTabRelationclass() {
-  const obj = useSelectedObjectStore((s) => s.selectedObject) as Relationclass | null;
-  const update = useSelectedObjectStore((s) => s.updateSelectedField);
+  const { object, update } = useSelectedObjectForm();
   const getObjectFromUuid = useSelectedObjectStore((s) => s.getObjectFromUuid);
-  const getIcon = useSelectedObjectStore((s) => s.getIcon);
-  if (!obj) return null;
 
-  const bendpointObj = obj.bendpoint ? getObjectFromUuid(obj.bendpoint) : null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const image = bendpointObj ? getIcon((bendpointObj as any).geometry?.toString() ?? "") : "";
+  const relationClass = object as Relationclass | null;
+  if (!relationClass) return null;
 
-  function removeBendpoint() {
-    update("bendpoint", null);
-  }
+  const bendpoint = relationClass.bendpoint
+    ? getObjectFromUuid(relationClass.bendpoint)
+    : null;
 
   return (
-    <Box
-      component="section"
-      sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1.5, mt: 2 }}
-    >
-      <Typography component="legend" variant="caption" color="text.secondary">
-        Relationclass
-      </Typography>
-
+    <FieldsetSection legend="Relationclass">
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }}>
         <Typography>Bendpoint:</Typography>
-        {bendpointObj && (
-          <Tooltip title={bendpointObj.name ?? ""} arrow>
-            <Card className="object-card" sx={{ width: 120 }}>
-              <CardContent
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  p: 1,
-                  "&:last-child": { pb: 1 },
-                }}
-              >
-                {image && (
-                  <Box
-                    component="img"
-                    src={image}
-                    alt={bendpointObj.name}
-                    sx={{ width: 40, height: 40, objectFit: "contain" }}
-                  />
-                )}
-                <Box sx={{ fontSize: 12, mt: 0.5, textAlign: "center" }}>
-                  {bendpointObj.name}
-                </Box>
-              </CardContent>
-            </Card>
-          </Tooltip>
+        {bendpoint && (
+          <ObjectPreviewCard name={bendpoint.name} geometry={bendpoint.geometry} />
         )}
-
         <Stack spacing={1}>
           <Button
             variant="outlined"
             size="small"
             startIcon={<RemoveIcon />}
-            disabled={!obj.bendpoint}
-            onClick={removeBendpoint}
+            disabled={!relationClass.bendpoint}
+            onClick={() => update("bendpoint", null)}
           >
             Remove Bendpoint
           </Button>
-          <InlineObjectPicker objecttype="Bendpoint" />
+          <InlineObjectPicker childType="Bendpoint" />
         </Stack>
       </Stack>
-    </Box>
+    </FieldsetSection>
   );
 }

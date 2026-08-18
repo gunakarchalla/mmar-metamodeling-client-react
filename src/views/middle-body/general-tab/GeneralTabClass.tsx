@@ -1,42 +1,32 @@
-import { Box, FormControlLabel, Switch, Typography, Stack } from "@mui/material";
-import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import { FormControlLabel, Switch, Stack } from "@mui/material";
+import FieldsetSection from "@/views/common/FieldsetSection";
+import { useSelectedObjectForm } from "./useSelectedObjectForm";
 
-// Ports general-tab-class.{ts,html}: Reusable / Abstract switches on a Class.
+/** Class-only fields: whether instances may be reused, and whether it is abstract. */
 export default function GeneralTabClass() {
-  const obj = useSelectedObjectStore((s) => s.selectedObject);
-  const update = useSelectedObjectStore((s) => s.updateSelectedField);
-  if (!obj) return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const o = obj as any;
+  const { object, update } = useSelectedObjectForm();
+  if (!object) return null;
+  const flags = object as unknown as Record<string, boolean>;
 
   return (
-    <Box
-      component="fieldset"
-      sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1.5, mt: 2 }}
-    >
-      <Typography component="legend" variant="caption" color="text.secondary">
-        Class
-      </Typography>
+    <FieldsetSection legend="Class">
       <Stack direction="row" spacing={2}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={!!o.is_reusable}
-              onChange={(e) => update("is_reusable", e.target.checked)}
-            />
-          }
-          label="Reusable"
-        />
-        <FormControlLabel
-          control={
-            <Switch
-              checked={!!o.is_abstract}
-              onChange={(e) => update("is_abstract", e.target.checked)}
-            />
-          }
-          label="Abstract"
-        />
+        {[
+          { path: "is_reusable", label: "Reusable" },
+          { path: "is_abstract", label: "Abstract" },
+        ].map((flag) => (
+          <FormControlLabel
+            key={flag.path}
+            control={
+              <Switch
+                checked={!!flags[flag.path]}
+                onChange={(event) => update(flag.path, event.target.checked)}
+              />
+            }
+            label={flag.label}
+          />
+        ))}
       </Stack>
-    </Box>
+    </FieldsetSection>
   );
 }

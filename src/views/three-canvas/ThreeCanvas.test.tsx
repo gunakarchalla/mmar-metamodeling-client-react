@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// ThreeCanvas lifecycle (P5.1). The component mounts and unmounts on every object /
+// The component mounts and unmounts on every object /
 // type / tab switch, so its cleanup has to be exact:
 //   - the 1s steady-render interval is cleared (no orphaned timers accumulating one
 //     per visited object);

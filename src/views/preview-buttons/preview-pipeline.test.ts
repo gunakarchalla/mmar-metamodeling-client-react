@@ -1,4 +1,4 @@
-// Preview edge cases (P5.2): geometry is live-committed on every keystroke (D2), so a
+// Preview edge cases: geometry is committed on every keystroke, so a
 // half-typed snippet is the *normal* state of the buffer. `parseObj`/`parseMetaFunction`
 // evaluate that snippet with `new Function(...)` and throw on anything unparsable.
 //
@@ -7,7 +7,7 @@
 //   2. it returns *before* the engine reset, so the canvas keeps the last good preview
 //      instead of being wiped by a stray character;
 //   3. the Class/RelationClass/Port dispatch keys off the store's `type` string, NOT
-//      `instanceof` — the store holds PLAIN objects, never gds instances (P6).
+//      `instanceof` — the store holds plain objects, never revived class instances.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -112,9 +112,7 @@ vi.mock("@/resources/store/selectedObjectStore", () => ({
     getState: () => ({
       getSelectedObject: () => mocks.selected,
       type: mocks.selectedType,
-      getClasses: () => [],
-      getRelationClasses: () => [],
-      getPorts: () => [],
+      getObjects: () => [],
     }),
   },
 }));
@@ -122,11 +120,11 @@ vi.mock("@/resources/store/selectedObjectStore", () => ({
 import { runPreview, clearPreview, previewSelectedObject } from "./preview-pipeline";
 
 /**
- * The production shape. `backendService.fetchData()` pushes raw parsed JSON into the
- * store — only SceneType/SceneInstance are ever run through `fromJS` — so a selected
- * Class/Relationclass/Port is a PLAIN object whose prototype is `Object.prototype`.
- * Building fixtures with `new Class(...)` (as this suite originally did) hides the very
- * bug P6 found: every `instanceof` check in runPreview silently fell through.
+ * Fixtures in the shape production actually holds. The backend service pushes raw
+ * parsed JSON into the store — only scene types and scene instances are ever revived
+ * into their classes — so a selected class, relation class or port is a plain object.
+ * Building fixtures with `new Class(...)` would hide the reason the pipeline dispatches
+ * on the store's `type` tag rather than on `instanceof`.
  */
 function selectPlain(type: string, geometry: string) {
   const obj = { uuid: `${type.toLowerCase()}-uuid`, name: "Demo", geometry };
@@ -209,7 +207,7 @@ describe("runPreview — geometry guards", () => {
   });
 });
 
-describe("runPreview — type dispatch (P6 regression)", () => {
+describe("runPreview — type dispatch", () => {
   // Before the fix, runPreview branched on `selected instanceof Class` etc. The store
   // never holds gds instances, so ALL three branches fell through to the else and the
   // preview drew nothing for every type — while this suite passed, because its fixtures

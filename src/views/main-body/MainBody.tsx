@@ -7,9 +7,7 @@ import LogWindow from "@/views/log-window/LogWindow";
 import LeftNav from "@/views/left-nav/LeftNav";
 import MiddleBody from "@/views/middle-body/MiddleBody";
 
-// A draggable divider styled as a thin MUI divider that highlights on
-// hover/drag. Reused between every pair of panels. The library handles the
-// drag mechanics and (via PanelGroup autoSaveId) persists the layout.
+/** The draggable divider between two panels; highlights on hover and drag. */
 const ResizeHandle = styled(PanelResizeHandle)(({ theme }) => ({
   width: 5,
   flex: "0 0 auto",
@@ -21,10 +19,11 @@ const ResizeHandle = styled(PanelResizeHandle)(({ theme }) => ({
   },
 }));
 
-// Mirrors main-body-tab-bar: pings the server (after a short delay) and shows
-// either the resizable 3-column content area or a "no connection" message.
-// Columns (left-nav | middle-body | log window) are horizontally resizable;
-// autoSaveId persists the layout to localStorage across reloads.
+/**
+ * The three resizable columns the app works in — object lists, editor, log —
+ * behind a check that the server is actually reachable. The column widths are
+ * remembered across reloads.
+ */
 export default function MainBody() {
   const [isConnected, setIsConnected] = useState<boolean | undefined>(undefined);
 
@@ -83,10 +82,9 @@ export default function MainBody() {
       autoSaveId="mmar-metamodeling-layout"
       style={{ flex: 1, minHeight: 0 }}
     >
-      {/* Left-nav: object-category accordions. `overscrollBehavior: contain`
-          keeps a fast flick that reaches the end of the list from chaining its
-          leftover delta into the document (see the shell's overflow guard in
-          main.tsx) — the same reason it is set on the other two panels. */}
+      {/* `overscrollBehavior: contain` stops a fast flick that reaches the end
+          of a panel from chaining its leftover scroll into the document, which
+          the shell deliberately cannot scroll. Set on all three panels. */}
       <Panel
         defaultSize={18}
         minSize={12}
@@ -98,7 +96,6 @@ export default function MainBody() {
 
       <ResizeHandle />
 
-      {/* Middle-body: object tabs (General + structural/relational tabs) */}
       <Panel minSize={30}>
         <Box
           className="middle-body"
@@ -115,7 +112,6 @@ export default function MainBody() {
 
       <ResizeHandle />
 
-      {/* Log window */}
       <Panel defaultSize={20} minSize={12} maxSize={40}>
         <LogWindow />
       </Panel>

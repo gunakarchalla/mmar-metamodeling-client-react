@@ -6,11 +6,10 @@ import { instanceUtility } from "@/resources/services/instance-utility";
 import { logger } from "@/resources/services/logger";
 import { describeError } from "@/resources/util/describe-error";
 
-// Port of the old three-canvas `checkForLineToUpdate()`: keep the open scene's
-// relation line glued to its endpoints on each steady-render tick.
+/** Keep the open scene's relation line glued to the objects it connects. */
 async function checkForLineToUpdate() {
-  // Mirror the animator's guard so we don't log "no sceneInstance found" every
-  // second before a preview has been run.
+  // Guard as the animator does, so nothing is logged every second before a
+  // preview has been run at all.
   if (globalObject.tabContext.length === 0) return;
   const sceneInstance = await instanceUtility.getTabContextSceneInstance();
   if (sceneInstance && sceneInstance.relationclasses_instances.length > 0) {
@@ -21,25 +20,23 @@ async function checkForLineToUpdate() {
   }
 }
 
-// Ports `views/three-canvas/three-canvas.{ts,html}`. The old client found the
-// canvas container via `document.getElementById('container')` and a polling
-// interval; in React we pass the container element straight into engine.mount()
-// (plan §273/§314). The engine is mounted ONCE (ref + empty-dep useEffect);
-// engine.mount/unmount are idempotent so StrictMode's double-invoke is safe.
-// A ResizeObserver keeps the renderer + cameras in sync with the container size.
-//
-// Unlike vizrep — where this component lived for the whole page life — here it
-// mounts and unmounts on every object / type / tab switch (plan §4.5). Two
-// consequences drive the code below:
-//   1. The cleanup must wait for an in-flight engine.mount() before detaching,
-//      otherwise init() completes after unmount and leaves a render loop running
-//      against a detached canvas.
-//   2. A cleanup that lands after a newer mount has taken over must not detach
-//      that newer mount's canvas — hence the mount token.
-//
-// The AR button (engine.createARButton()) is intentionally omitted here
-// (decision D5): AR is a vizrep-only extra and an "AR NOT SUPPORTED" overlay
-// inside a form is noise.
+/**
+ * The live 3D preview: an element for the engine to render into, and the
+ * lifecycle that keeps the singleton renderer attached to it.
+ *
+ * This component mounts and unmounts on every object, type and tab switch, which
+ * is what the two guards below are for:
+ *
+ *   1. The cleanup waits for an in-flight `engine.mount()` before detaching —
+ *      otherwise startup finishes after the unmount and leaves a render loop
+ *      running against a canvas nobody can see.
+ *   2. A cleanup that lands after a newer mount has taken over must not detach
+ *      that newer mount's canvas, which is what the mount token identifies.
+ *
+ * A resize observer keeps the renderer and cameras matched to the element's
+ * size. The AR entry point the engine offers is deliberately not surfaced here:
+ * an "AR NOT SUPPORTED" overlay in the middle of a form is noise.
+ */
 export default function ThreeCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -54,35 +51,31 @@ export default function ThreeCanvas() {
       .mount(el)
       .then((token) => {
         if (disposed) return token;
-        // Match the renderer/cameras to the actual container size, then keep them
-        // synced (the ResizeObserver replaces the old window 'resize' listener).
+        // Match the renderer and cameras to the element, then keep them matched.
         resize.resize();
         observer = new ResizeObserver(() => resize.resize());
         observer.observe(el);
         return token;
       })
       .catch((err: unknown) => {
-        // A failing init (e.g. no WebGL context) must surface as a log line, not as
-        // an unhandled rejection that takes the General tab down.
+        // A failed start-up — no WebGL context, say — should be a log line, not
+        // an unhandled rejection that takes the whole General tab down.
         logger.log(`3D preview could not start: ${describeError(err)}`, "error");
         return undefined;
       });
 
-    // Steady-render safety net — a faithful port of the old three-canvas
-    // `attached()` ("set steady rendering at least every second"). The animator
-    // only draws a frame when globalObject.render === true, but the vizrep
-    // *update* path (graphic-context updateVizRepClass/Port/RelClass, invoked on
-    // every attribute-window edit via vizrepUpdateChecker.checkForVizRepUpdate)
-    // mutates the meshes in place WITHOUT ever setting that flag. Without this
-    // tick those edits never reach the canvas — i.e. changing an attribute value
-    // is not reflected in the preview. It also keeps the relation line
-    // positioned. (The P8 port dropped this, wrongly assuming the ResizeObserver
-    // covered it.)
+    // Draw at least once a second regardless of what asked for it.
+    //
+    // The animator only draws when something sets the render flag, but the
+    // VizRep *update* path — the one that runs when an attribute value changes —
+    // mutates the meshes in place without ever setting it. Without this tick
+    // those edits would never reach the canvas. It also keeps the relation line
+    // positioned.
     const steadyRender = setInterval(() => {
       globalObject.render = true;
-      // Fires once a second forever: a rejection here (e.g. the tab context points
-      // at a scene that was torn down mid-tick) must not become an unhandled
-      // rejection, and must not spam the log on every tick either.
+      // This fires forever, so a rejection here — the tab context pointing at a
+      // scene torn down mid-tick, say — must neither become an unhandled
+      // rejection nor fill the log with one entry per second.
       void checkForLineToUpdate().catch(() => {});
     }, 1000);
 
@@ -90,10 +83,8 @@ export default function ThreeCanvas() {
       disposed = true;
       clearInterval(steadyRender);
       observer?.disconnect();
-      // Detach only once the mount has settled, and only if this mount still owns
-      // the engine (token check inside unmount). Both guards matter: the first stops
-      // an orphaned render loop, the second stops a stale StrictMode cleanup from
-      // detaching the canvas the second mount just attached.
+      // Detach only once the mount has settled, and only if this mount still
+      // owns the engine — the token check lives inside `unmount`.
       void mounted.then((token) => engine.unmount(token));
     };
   }, []);

@@ -25,36 +25,38 @@ import {
 import { backendService } from "@/resources/services/backend-service";
 import { isMacPlatform } from "@/resources/util/platform";
 
-// Tooltip suffixes advertising each button's keyboard chord. The `aria-label`s
-// below stay bare ("undo", "save", …) so the accessible names don't drift with
-// the platform — MUI would otherwise derive them from these titles.
+/**
+ * The keyboard chords advertised in the tooltips. The buttons carry their own
+ * bare `aria-label`s so their accessible names stay the same on every platform,
+ * rather than being derived from these titles.
+ */
 const CHORDS = isMacPlatform()
   ? { undo: "⌘Z", redo: "⌘⇧Z", save: "⌘S" }
   : { undo: "Ctrl+Z", redo: "Ctrl+Shift+Z", save: "Ctrl+S" };
 
-// Vertical divider matching the modeling client's toolbar (1px light-grey separator).
+/** Thin separator between groups of toolbar buttons. */
 function VDivider() {
   return <Box sx={{ borderLeft: "1px solid #bdbdbd", height: 24, mx: 0.5 }} />;
 }
 
-// Second menu bar (toolbar-container parity), split out of TopNavBar so the page
-// title stays visible on laptop screens. Undo/Redo step the *active tab's* own
-// history, Refresh triggers the global refresh, the bug button (admin only) logs
-// the selected object and Save persists it + refreshes.
+/**
+ * The action bar below the menus: undo and redo, which step the *active tab's*
+ * own history; refresh, which reloads everything from the server; save; and, for
+ * administrators, a button that dumps the selected object to the console.
+ */
 export default function Toolbar() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const triggerRefresh = useUiStore((s) => s.triggerRefresh);
 
-  // Boolean selectors: these re-render the toolbar only when a step becomes
-  // (un)available, not on every keystroke that pushes a history entry.
+  // Boolean selectors, so the toolbar re-renders only when a step becomes
+  // available or stops being so — not on every keystroke that records one.
   const canUndo = useSelectedObjectStore(selectCanUndo);
   const canRedo = useSelectedObjectStore(selectCanRedo);
   const undo = useSelectedObjectStore((s) => s.undo);
   const redo = useSelectedObjectStore((s) => s.redo);
 
-  // A full refresh re-fetches every collection and so discards every open tab,
-  // unsaved edits included. Confirm first when any tab is dirty; dismissing the
-  // dialog (Esc / backdrop / Cancel) leaves everything as it was.
+  // A refresh refetches every collection and so discards every open tab, unsaved
+  // edits included — hence the confirmation when any of them has some.
   const [confirmRefresh, setConfirmRefresh] = useState(false);
 
   function requestRefresh() {
@@ -75,19 +77,15 @@ export default function Toolbar() {
     triggerRefresh();
   }
 
-  function handleTest() {
-    console.log(
-      "Currently selected object : ",
-      useSelectedObjectStore.getState().selectedObject,
-    );
+  /** Administrator aid: dump the object being edited to the browser console. */
+  function logSelectedObject() {
+    console.log("Currently selected object:", useSelectedObjectStore.getState().selectedObject);
   }
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", width: "100%", height: "100%", px: 1 }}>
-      {/* The <span> wrappers keep the tooltips working while the buttons are
-          disabled (a disabled button fires no pointer events), which is also why
-          each button carries its own aria-label — MUI would otherwise hang the
-          tooltip's accessible name on the span. */}
+      {/* The <span> wrappers keep the tooltips working while their buttons are
+          disabled, since a disabled button fires no pointer events. */}
       <Tooltip title={`undo (${CHORDS.undo})`}>
         <span>
           <IconButton size="small" aria-label="undo" disabled={!canUndo} onClick={undo}>
@@ -112,7 +110,7 @@ export default function Toolbar() {
       </Tooltip>
       {currentUser?.isAdmin && (
         <Tooltip title="debug">
-          <IconButton size="small" onClick={handleTest}>
+          <IconButton size="small" onClick={logSelectedObject}>
             <BugReportIcon />
           </IconButton>
         </Tooltip>
@@ -126,8 +124,7 @@ export default function Toolbar() {
         </IconButton>
       </Tooltip>
 
-      {/* Dismissing this dialog (Esc / backdrop / Cancel) does nothing — the
-          open tabs and their unsaved edits are left untouched. */}
+      {/* Dismissing this leaves the open tabs and their edits untouched. */}
       <Dialog open={confirmRefresh} onClose={() => setConfirmRefresh(false)}>
         <DialogTitle>Discard unsaved changes?</DialogTitle>
         <DialogContent>

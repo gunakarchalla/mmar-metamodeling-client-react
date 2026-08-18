@@ -22,50 +22,42 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import { ColumnStructure } from "@gds/models/meta/Metamodel_columns.structure";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { useLogStore } from "@/resources/store/logStore";
+import { vizRepIcon } from "@/resources/services/vizrep-icon";
 import { textify } from "@/resources/util/textify";
-import { ColumnStructure } from "@gds/models/meta/Metamodel_columns.structure";
-
-// Ports parent-child-select.{ts,html}: a searchable / sortable table of a
-// parent object's children, with Add (via ModalObjectSelect), Remove, Edit,
-// inline min/max editing, row reordering and per-type column visibility. The
-// component reads/writes the current selectedObject through the store; it
-// re-renders on every store `revision` bump (commit), so it always reflects the
-// latest children after addChild/removeChild/updateMinMax.
+import { ObjectRow, useObjectTable } from "./object-table";
+import SortableHeaderCell from "./SortableHeaderCell";
 import ModalObjectSelect from "./ModalObjectSelect";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyObj = any;
+/**
+ * The table of children hanging off the object being edited, with the controls
+ * to add, remove, open and reorder them.
+ *
+ * `items` is the live array on the selected object, mutated in place by the
+ * store, so this subscribes to the store's `revision` counter rather than
+ * relying on the array reference changing.
+ */
 
-interface SortState {
-  column: string;
-  direction: "asc" | "desc";
-}
+/** Child types that are references held by a role rather than objects. */
+const ROLE_CHILD_TYPES = ["Source", "Destination", "Role"];
 
-function isRoleType(t: string): boolean {
-  return t === "Source" || t === "Destination" || t === "Role";
-}
+/** Child types that are bare uuid lists on a user group. */
+const RIGHT_CHILD_TYPES = ["read_right", "write_right", "delete_right", "can_create_instance"];
 
-function isRightType(t: string): boolean {
-  return (
-    t === "read_right" ||
-    t === "write_right" ||
-    t === "delete_right" ||
-    t === "can_create_instance"
-  );
-}
-
-// Inline min/max editor: controlled by the live reference value, persists via
-// validateMinMax (updateMinMax) on change. Mirrors the two mdc-text-field cells.
+/**
+ * Inline cardinality editor for one end of a reference. Controlled by the live
+ * reference value and persisted on every change.
+ */
 function MinMaxCell({
   item,
   field,
-  validate,
+  onCommit,
 }: {
-  item: AnyObj;
+  item: ObjectRow;
   field: "min" | "max";
-  validate: (uuid: string, min: number, max: number) => void;
+  onCommit: (uuid: string, min: number, max: number) => void;
 }) {
   return (
     <TextField
@@ -73,28 +65,33 @@ function MinMaxCell({
       size="small"
       label={field === "min" ? "Min" : "Max"}
       value={item[field] ?? 0}
-      inputProps={{ min: field === "min" ? 0 : item.min ?? 0, step: 1 }}
-      onChange={(e) => {
-        const v = e.target.value === "" ? 0 : Number(e.target.value);
-        const min = field === "min" ? v : Number(item.min ?? 0);
-        const max = field === "max" ? v : Number(item.max ?? 0);
-        validate(item.uuid, min, max);
+      inputProps={{ min: field === "min" ? 0 : (item.min ?? 0), step: 1 }}
+      onChange={(event) => {
+        const value = event.target.value === "" ? 0 : Number(event.target.value);
+        onCommit(
+          item.uuid,
+          field === "min" ? value : Number(item.min ?? 0),
+          field === "max" ? value : Number(item.max ?? 0),
+        );
       }}
       sx={{ width: 90 }}
     />
   );
 }
 
-// UI-component selector for Attribute / Column rows. The available components
-// depend on whether the attribute defines facets (a `|`-separated string,
-// same check as GeneralTabAttribute): with facets the value comes from a fixed
-// set, so only Dropdown / Slider make sense; without facets the value is free,
-// so only Text / Button are offered. The unavailable items are disabled.
+/**
+ * Which input the modelling client should render for an attribute's value.
+ *
+ * The choice depends on whether the attribute defines facets — a `|`-separated
+ * list of allowed values. With facets the value comes from a fixed set, so only
+ * a dropdown or a slider makes sense; without them it is free text, so only a
+ * text field or a button does. The other options stay visible but disabled.
+ */
 function UiComponentCell({
   row,
   onChange,
 }: {
-  row: AnyObj;
+  row: ObjectRow;
   onChange: (value: string) => void;
 }) {
   const hasFacets = !!row.facets && row.facets.split("|").length > 0;
@@ -103,7 +100,7 @@ function UiComponentCell({
       size="small"
       displayEmpty
       value={textify(row.ui_component)}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(event) => onChange(event.target.value)}
       sx={{ minWidth: 130 }}
     >
       <MenuItem value="text" disabled={hasFacets}>
@@ -123,22 +120,21 @@ function UiComponentCell({
 }
 
 export default function ParentChildSelect({
-  objecttypetoadd = "object",
+  childType = "object",
   items,
   sortable = false,
 }: {
-  objecttypetoadd?: string;
-  items: AnyObj;
+  /** What `addChild`/`removeChild` should make of a uuid in this list. */
+  childType?: string;
+  items: ObjectRow;
   sortable?: boolean;
 }) {
-  // Subscribe to revision so we recompute after every in-place store commit
-  // (children arrays are mutated in place, so the `items` reference alone is
-  // not enough to trigger recomputation).
+  // Children are mutated in place, so the store's commit counter — not the
+  // `items` reference — is what signals that this list has changed.
   const revision = useSelectedObjectStore((s) => s.revision);
   const getObjectsFromRole = useSelectedObjectStore((s) => s.getObjectsFromRole);
   const getObjectFromUuid = useSelectedObjectStore((s) => s.getObjectFromUuid);
   const getTypeFromUuid = useSelectedObjectStore((s) => s.getTypeFromUuid);
-  const getIcon = useSelectedObjectStore((s) => s.getIcon);
   const removeChild = useSelectedObjectStore((s) => s.removeChild);
   const setSelectedObject = useSelectedObjectStore((s) => s.setSelectedObject);
   const updateMinMax = useSelectedObjectStore((s) => s.updateMinMax);
@@ -146,168 +142,94 @@ export default function ParentChildSelect({
   const log = useLogStore((s) => s.log);
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentSort, setCurrentSort] = useState<SortState>({
-    column: "name",
-    direction: "asc",
-  });
 
-  const titleType = objecttypetoadd === "Role" ? "Reference" : objecttypetoadd;
-  const rightType = isRightType(objecttypetoadd);
-  const roleType = isRoleType(objecttypetoadd);
+  const isRoleList = ROLE_CHILD_TYPES.includes(childType);
+  const isRightList = RIGHT_CHILD_TYPES.includes(childType);
+  const title = childType === "Role" ? "Reference" : childType;
 
-  // Normalize items prop to an array (the live store array, or wrapped single).
-  const itemsArray: AnyObj[] = useMemo(() => {
-    if (!items) return [];
-    return Array.isArray(items) ? items : [items];
-    // `revision` is intentionally in the deps: children arrays mutate in place,
-    // so the `items` reference alone does not signal a change.
-  }, [items, revision]);
+  // A role field holds one role object; every other field holds an array.
+  const rawItems: ObjectRow[] = useMemo(
+    () => (!items ? [] : Array.isArray(items) ? items : [items]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, revision],
+  );
 
-  // initializeItems(): build computedItems by pseudo-type.
-  const computedItems: AnyObj[] = useMemo(() => {
-    if (objecttypetoadd === "Role" || roleType) {
-      const out: AnyObj[] = [];
-      for (const item of itemsArray) {
-        const objects = getObjectsFromRole(item);
-        for (const object of objects) {
-          out.push({ ...object });
-        }
-      }
-      return out;
-    } else if (objecttypetoadd === "Column") {
-      let id = 1;
-      const out: AnyObj[] = [];
-      for (const item of itemsArray) {
-        item.sequence = id;
-        const newObject = new ColumnStructure({ ...item.attribute }, id++);
-        out.push(newObject.get_attribute());
-      }
-      return out;
-    } else if (rightType) {
-      const out: AnyObj[] = [];
-      for (const item of itemsArray) {
-        const objectUuid = typeof item === "string" ? item : item.uuid;
-        const object = getObjectFromUuid(objectUuid);
-        if (object) out.push({ ...object });
-      }
-      return out;
-    }
-    // default: the children array itself. Sort by sequence when not sortable.
-    const copy = [...itemsArray];
-    if (!sortable) {
-      copy.sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
-    }
-    return copy;
-    // `revision` keeps this in sync with in-place store mutations.
-  }, [itemsArray, objecttypetoadd, sortable, revision]);
+  /** The rows to display, resolved from whatever the field actually stores. */
+  const rows: ObjectRow[] = useMemo(() => {
+    // Roles store references; show the objects they point at.
+    if (isRoleList) return rawItems.flatMap((role) => getObjectsFromRole(role));
 
-  // Apply sort (only meaningful when sortable) then filter by search term.
-  const filteredItems: AnyObj[] = useMemo(() => {
-    let list = computedItems;
-    if (sortable) {
-      const { column, direction } = currentSort;
-      const getVal = (o: AnyObj) =>
-        column === "type" ? getTypeFromUuid(o.uuid) : o[column];
-      list = [...list].sort((a, b) => {
-        let result = 0;
-        const av = getVal(a);
-        const bv = getVal(b);
-        if (av < bv) result = -1;
-        if (av > bv) result = 1;
-        return direction === "asc" ? result : -result;
+    // Table columns are rebuilt so each row carries its position as `sequence`.
+    if (childType === "Column") {
+      return rawItems.map((column, index) => {
+        column.sequence = index + 1;
+        return new ColumnStructure({ ...column.attribute }, index + 1).get_attribute();
       });
     }
-    if (searchTerm) {
-      const s = searchTerm.toLowerCase();
-      // Match on name, description AND the object's type so that searching for a
-      // type name (e.g. "SceneType") returns every object of that type, not just
-      // the few whose name/description happen to contain the text.
-      list = list.filter((item) => {
-        const type = getTypeFromUuid(item.uuid);
-        return (
-          item.name?.toLowerCase().includes(s) ||
-          item.description?.toLowerCase().includes(s) ||
-          type?.toLowerCase().includes(s)
-        );
+
+    // Rights store bare uuids; resolve each to the object it names.
+    if (isRightList) {
+      return rawItems.flatMap((item) => {
+        const object = getObjectFromUuid(typeof item === "string" ? item : item.uuid);
+        return object ? [{ ...object }] : [];
       });
     }
-    return list;
-  }, [computedItems, sortable, currentSort, searchTerm, getTypeFromUuid]);
 
-  function removeObject(uuid: string | null = selected) {
+    // Otherwise the field already holds the child objects. Lists the user cannot
+    // sort carry an explicit order instead.
+    return sortable ? rawItems : [...rawItems].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawItems, childType, isRoleList, isRightList, sortable, revision]);
+
+  const { searchTerm, setSearchTerm, sort, sortBy, visibleRows } = useObjectTable(
+    rows,
+    getTypeFromUuid,
+    { sortable },
+  );
+
+  function remove(uuid: string | null = selected) {
     if (!uuid) return;
-    removeChild(uuid, objecttypetoadd);
+    removeChild(uuid, childType);
     setSelected(null);
   }
 
-  function editObject() {
-    if (selected) setSelectedObject(selected);
+  /** Position of `uuid` in the underlying array, which reordering works on. */
+  function indexOf(uuid: string): number {
+    return childType === "Column"
+      ? rawItems.findIndex((item) => item.attribute.uuid === uuid)
+      : rawItems.findIndex((item) => item.uuid === uuid);
   }
 
-  function sortList(column: string) {
-    if (!sortable) return;
-    setCurrentSort((prev) =>
-      prev.column === column
-        ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
-        : { column, direction: "asc" },
-    );
-  }
-
-  function getIndex(uuid: string): number {
-    if (objecttypetoadd === "Column") {
-      return itemsArray.findIndex((item) => item.attribute.uuid === uuid);
-    }
-    return itemsArray.findIndex((item) => item.uuid === uuid);
-  }
-
-  // moveRow reorders the live children array in place + reassigns sequence,
-  // then commits so subscribers re-render (mirrors the original splice logic).
+  /**
+   * Move a row one place up or down. Reorders the live array in place and
+   * renumbers `sequence`, which is what the order is persisted as.
+   */
   function moveRow(uuid: string, direction: "up" | "down") {
-    const index = getIndex(uuid);
-    if (direction === "up" && index > 0) {
-      const item = itemsArray[index];
-      itemsArray.splice(index, 1);
-      itemsArray.splice(index - 1, 0, item);
-    } else if (direction === "down" && index < itemsArray.length - 1) {
-      const item = itemsArray[index];
-      itemsArray.splice(index, 1);
-      itemsArray.splice(index + 1, 0, item);
-    }
-    for (let i = 0; i < itemsArray.length; i++) {
-      itemsArray[i].sequence = i + 1;
-    }
+    const from = indexOf(uuid);
+    const to = direction === "up" ? from - 1 : from + 1;
+    if (from < 0 || to < 0 || to >= rawItems.length) return;
+
+    rawItems.splice(to, 0, ...rawItems.splice(from, 1));
+    rawItems.forEach((item, index) => {
+      item.sequence = index + 1;
+    });
     commitSelected();
   }
 
-  function validateMinMax(uuid: string, min: number, max: number) {
+  function commitMinMax(uuid: string, min: number, max: number) {
     if (min > max) {
       log("Minimum value cannot be greater than maximum value", "error");
-      return false;
+      return;
     }
     updateMinMax(uuid, min, max);
-    return true;
   }
 
-  function setUiComponent(row: AnyObj, value: string) {
-    row.ui_component = value;
-    commitSelected();
-  }
-
+  // Reordering is offered exactly where sorting is not: a list the user can sort
+  // has no stable order of its own to drag rows around in.
   const showMove = !sortable;
-  const showType = roleType;
-  const showUiComponent =
-    objecttypetoadd === "Attribute" || objecttypetoadd === "Column";
-  const showMinMax = roleType;
-
-  const sortIndicator = (column: string) =>
-    sortable && currentSort.column === column ? (
-      currentSort.direction === "asc" ? (
-        <ArrowUpwardIcon fontSize="inherit" sx={{ ml: 0.5, verticalAlign: "middle" }} />
-      ) : (
-        <ArrowDownwardIcon fontSize="inherit" sx={{ ml: 0.5, verticalAlign: "middle" }} />
-      )
-    ) : null;
+  const showType = isRoleList;
+  const showMinMax = isRoleList;
+  const showUiComponent = childType === "Attribute" || childType === "Column";
 
   return (
     <Box
@@ -315,17 +237,15 @@ export default function ParentChildSelect({
       sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 2, m: 1 }}
     >
       <Box component="legend" sx={{ px: 1, fontWeight: 500 }}>
-        {titleType}s
+        {title}s
       </Box>
 
-      <Box
-        sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mb: 1 }}
-      >
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mb: 1 }}>
         <TextField
           label="search"
           size="small"
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(event) => setSearchTerm(event.target.value)}
           inputProps={{ maxLength: 256 }}
           InputProps={{
             startAdornment: (
@@ -336,18 +256,14 @@ export default function ParentChildSelect({
           }}
         />
 
-        <ModalObjectSelect
-          objecttype={objecttypetoadd}
-          ismultiselect
-          onClose={() => setSelected(null)}
-        />
+        <ModalObjectSelect childType={childType} onClose={() => setSelected(null)} />
 
         <Button
           variant="outlined"
           size="small"
           startIcon={<RemoveIcon />}
           disabled={selected === null}
-          onClick={() => removeObject()}
+          onClick={() => remove()}
         >
           Remove selected
         </Button>
@@ -357,7 +273,7 @@ export default function ParentChildSelect({
           size="small"
           startIcon={<EditIcon />}
           disabled={selected === null}
-          onClick={() => editObject()}
+          onClick={() => selected && setSelectedObject(selected)}
         >
           Edit selected
         </Button>
@@ -372,22 +288,28 @@ export default function ParentChildSelect({
               {showMove && <TableCell />}
               <TableCell>Image</TableCell>
               {showType && (
-                <TableCell sx={{ cursor: "pointer" }} onClick={() => sortList("type")}>
-                  Type
-                  {sortIndicator("type")}
-                </TableCell>
+                <SortableHeaderCell
+                  column="type"
+                  label="Type"
+                  sort={sort}
+                  sortBy={sortBy}
+                  enabled={sortable}
+                />
               )}
-              <TableCell sx={{ cursor: "pointer" }} onClick={() => sortList("name")}>
-                Name
-                {sortIndicator("name")}
-              </TableCell>
-              <TableCell
-                sx={{ cursor: "pointer" }}
-                onClick={() => sortList("description")}
-              >
-                Description
-                {sortIndicator("description")}
-              </TableCell>
+              <SortableHeaderCell
+                column="name"
+                label="Name"
+                sort={sort}
+                sortBy={sortBy}
+                enabled={sortable}
+              />
+              <SortableHeaderCell
+                column="description"
+                label="Description"
+                sort={sort}
+                sortBy={sortBy}
+                enabled={sortable}
+              />
               {showUiComponent && <TableCell>UI Component</TableCell>}
               {showMinMax && <TableCell align="right">Min</TableCell>}
               {showMinMax && <TableCell align="right">Max</TableCell>}
@@ -395,23 +317,28 @@ export default function ParentChildSelect({
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredItems.map((item, i) => (
+            {visibleRows.map((item, index) => (
               <TableRow
-                key={item.uuid ?? i}
+                key={item.uuid ?? index}
                 hover
                 selected={item.uuid === selected}
                 sx={{ cursor: "pointer" }}
                 onClick={() => setSelected(item.uuid)}
               >
                 {showMove && (
-                  <TableCell onClick={(e) => e.stopPropagation()}>
+                  <TableCell onClick={(event) => event.stopPropagation()}>
                     {item.uuid === selected && (
                       <Box sx={{ display: "flex", flexDirection: "column" }}>
-                        <IconButton size="small" onClick={() => moveRow(item.uuid, "up")}>
+                        <IconButton
+                          size="small"
+                          aria-label="move up"
+                          onClick={() => moveRow(item.uuid, "up")}
+                        >
                           <ArrowUpwardIcon fontSize="inherit" />
                         </IconButton>
                         <IconButton
                           size="small"
+                          aria-label="move down"
                           onClick={() => moveRow(item.uuid, "down")}
                         >
                           <ArrowDownwardIcon fontSize="inherit" />
@@ -425,32 +352,39 @@ export default function ParentChildSelect({
                     alt={`image of ${item.name}`}
                     className="image-list"
                     style={{ width: 32, height: 32, objectFit: "contain" }}
-                    src={getIcon(item.geometry?.toString() ?? "")}
+                    src={vizRepIcon(item.geometry?.toString() ?? "")}
                   />
                 </TableCell>
                 {showType && <TableCell>{getTypeFromUuid(item.uuid)}</TableCell>}
                 <TableCell>{item.name}</TableCell>
                 <TableCell>{item.description}</TableCell>
                 {showUiComponent && (
-                  <TableCell onClick={(e) => e.stopPropagation()}>
+                  <TableCell onClick={(event) => event.stopPropagation()}>
                     <UiComponentCell
                       row={item}
-                      onChange={(v) => setUiComponent(item, v)}
+                      onChange={(value) => {
+                        item.ui_component = value;
+                        commitSelected();
+                      }}
                     />
                   </TableCell>
                 )}
                 {showMinMax && (
-                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    <MinMaxCell item={item} field="min" validate={validateMinMax} />
+                  <TableCell align="right" onClick={(event) => event.stopPropagation()}>
+                    <MinMaxCell item={item} field="min" onCommit={commitMinMax} />
                   </TableCell>
                 )}
                 {showMinMax && (
-                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    <MinMaxCell item={item} field="max" validate={validateMinMax} />
+                  <TableCell align="right" onClick={(event) => event.stopPropagation()}>
+                    <MinMaxCell item={item} field="max" onCommit={commitMinMax} />
                   </TableCell>
                 )}
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <IconButton size="small" onClick={() => removeObject(item.uuid)}>
+                <TableCell onClick={(event) => event.stopPropagation()}>
+                  <IconButton
+                    size="small"
+                    aria-label={`remove ${item.name}`}
+                    onClick={() => remove(item.uuid)}
+                  >
                     <DeleteIcon fontSize="inherit" />
                   </IconButton>
                 </TableCell>

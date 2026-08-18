@@ -1,55 +1,75 @@
 # mmar-metamodeling-client-react
 
-A React port of the MMAR **metamodel-design** tool (`mmar-metamodeling-client`),
-built for functional parity with the Aurelia 2 original. Same backend, same
-shared DTOs, same workflows — re-implemented on **React + TypeScript + Vite +
-MUI (Material UI) + Zustand**.
+The MMAR **metamodel-design** tool: a single-page application for authoring the
+metamodels that the MMAR modelling and AR clients then instantiate. Built with
+**React + TypeScript + Vite + MUI + Zustand**, talking to `mmar-server`.
 
-It is a single-page, **no-router** app: navigation is driven by a singleton
-selection store (`selectedObjectStore`) plus a UI refresh signal (`uiStore`),
-mirroring the original's `SelectedObjectService` + `EventAggregator`.
+## What it does
+
+Sign in, browse the eleven kinds of meta object the server holds, and edit them:
+their own fields, the children they contain, the references between them, and —
+for the concepts that are drawn in 3D — their **VizRep**, the JavaScript that
+renders them, with a live preview.
 
 ## Architecture
 
-- **`src/resources/store/`** — Zustand stores ported from the Aurelia services:
-  - `selectedObjectStore` — the in-memory metamodel tree + current selection
-    (port of `SelectedObjectService`).
-  - `authStore` — login/logout/signup, JWT in `localStorage["auth_token"]`
-    (port of `UserService`).
-  - `logStore` — log list + MUI Snackbar (replaces `Logger` + `MdcSnackbarService`).
-  - `uiStore` — refresh signal (replaces the `"refresh"` EventAggregator channel).
-- **`src/resources/services/`** — framework-agnostic logic reused from the
-  original: `validation.ts`, `helper-service.ts` (verbatim), and
-  `backend-service.ts` (Aurelia `HttpClient` swapped for a `fetch` wrapper in
-  `api.ts`).
-- **`src/views/`** — the UI as React components (MUI), one folder per region:
-  `layout/`, `top-nav-bar/`, `left-nav/`, `middle-body/` (tab framework +
-  General-tab variants + structural/relational tabs), `object-list/`,
-  `object-list-item/`, `common/` (shared `ModalObjectSelect`, `ParentChildSelect`,
-  `AppSnackbar`), `log-window/`, `footer/`, `right-nav/`, `auth/`.
+There is no router. What you see is decided by a selection store and by a strip
+of open editor tabs, VS Code style: each tab owns its own working copy of an
+object, so unsaved edits survive switching between them and are only reconciled
+with the loaded collections when the tab is saved.
 
-## Shared DTOs (`@gds`)
+- **`src/resources/meta-model/`** — `meta-types.ts`, the single source of truth
+  for the eleven meta types: which store collection holds each one, which REST
+  route it lives at, and how it is labelled. The store, the backend service and
+  the left navigation are all derived from it.
+- **`src/resources/store/`** — Zustand stores:
+  - `selectedObjectStore` — the loaded metamodel, the selection, the open tabs
+    and their per-tab undo history (`tab-history.ts`).
+  - `authStore` — sign in/out, backed by the bearer token in local storage.
+  - `logStore` — the log list plus the error snackbar.
+  - `uiStore` — the refresh signal the left navigation listens on.
+- **`src/resources/services/`** — the backend service and the framework-agnostic
+  helpers built on it (file caching, metamodel lookups, VizRep icon extraction).
+- **`src/views/`** — the UI, one folder per region: `layout/`, `top-nav-bar/`,
+  `toolbar/`, `left-nav/`, `object-list/`, `object-tabs/`, `middle-body/` (the
+  General tab and the structural tabs), `code-editor/`, `three-canvas/`,
+  `preview-buttons/`, `log-window/`, `footer/`, `auth/`, and `common/` for the
+  pieces shared between them.
+- **`src/engine/`** — the Three.js engine that renders the VizRep preview.
 
-The shared TypeScript DTOs in the sibling `../mmar-global-data-structure` are
-consumed **unchanged** via a path alias `@gds` (configured in both
-`vite.config.ts` and `tsconfig.json`). They are not copied or npm-installed.
-DTOs are imported with explicit paths, e.g.
-`import { SceneType } from "@gds/models/meta/Metamodel_scenetypes.structure";`
-and (de)serialized with `class-transformer` exactly as the original does
-(`reflect-metadata` is imported as the **first line** of `src/main.tsx`).
+### Code shared with the VizRep client
+
+`src/engine/` (except `index.ts`), `api.ts`, `expression-utility.ts`,
+`instance-utility.ts`, `logger.ts`, `editorStore.ts`, `logStore.ts`, `src/stubs/`
+and `src/types/` are kept **byte-identical** with the sibling
+`mmar-vizrep-client-react`. Change them in both clients together; the lint
+configuration exempts them so a local fix cannot fork the two copies by accident.
+
+## Shared data structures (`@gds`)
+
+The DTOs in the sibling `../mmar-global-data-structure` are consumed unchanged
+through the `@gds` path alias (configured in both `vite.config.ts` and
+`tsconfig.json`) — not copied, not installed from npm. They are (de)serialised
+with `class-transformer`, which is why `reflect-metadata` is the **first** import
+of `src/main.tsx`.
+
+Note that only scene types and scene instances are ever revived into their
+classes; every other collection holds the raw JSON the server sent. Code that
+needs to know what an object is therefore dispatches on the store's `type` tag,
+never on `instanceof`.
 
 ## Configuration
 
-Config comes from Vite env vars (`import.meta.env.VITE_*`), surfaced through
+Configuration comes from Vite environment variables, surfaced through
 `src/config.ts`:
 
-| Var | Default | Meaning |
+| Variable | Default | Meaning |
 |---|---|---|
-| `VITE_API_URL` | `http://localhost:8000` | Base URL of `mmar-server` (browser context) |
+| `VITE_API_URL` | `http://localhost:8000` | Base URL of `mmar-server` |
 
 Set it in `.env` / `.env.development`. The browser runs on the host, so keep
-`VITE_API_URL=http://localhost:8000` even inside Docker (the `mmar_server`
-service hostname does not resolve in the browser; it is host-mapped `8000:8000`).
+`VITE_API_URL=http://localhost:8000` even under Docker: the `mmar_server`
+service hostname does not resolve in the browser, and the port is host-mapped.
 
 ## Run / build
 
@@ -59,19 +79,15 @@ npm run dev        # Vite dev server on http://localhost:8075
 npm run build      # tsc --noEmit && vite build
 npm run preview    # serve the production build
 npm run typecheck  # tsc --noEmit
-npm run test       # vitest run (unit tests for the reused services)
+npm run test       # vitest run
 npm run lint       # eslint
 ```
 
-The app talks to **`mmar-server` on `:8000`** (start it with
-`cd ../mmar-server && npm run debug`, plus a reachable Postgres). Log in with
-the dev credentials (`admin` / `admin`). It runs alongside the original Aurelia
-metamodeling client (`:8070`) for side-by-side comparison.
+The app needs **`mmar-server` on `:8000`** (`cd ../mmar-server && npm run debug`,
+plus a reachable Postgres). Log in with the development credentials
+(`admin` / `admin`).
 
-## Scope
-
-Functional parity with the Aurelia client: auth, the 10 left-nav object lists,
-object create/save/delete, every populated tab and dialog (General-tab variants,
-structural/relational tabs, rights tabs, file upload). The intentionally-inert
-parts of the original — disabled File/View/Edit/Diagram top-nav menus, empty
-right-nav and footer — are rendered as static stubs.
+Bundling splits `three`, `monaco-editor` and the React/MUI vendor code into
+their own chunks, and the two subtrees that pull the first two in — the VizRep
+editor and the procedure editor — are loaded lazily, so neither is downloaded
+before you open an object that needs it.

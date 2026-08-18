@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 //
-// The two methods P2 added to the target's backend-service for the ported vizrep
-// services (plan §4.1). jsdom supplies `localStorage`, which both read for the token.
+// jsdom supplies the `localStorage` the bearer token is read from.
 //
-// Endpoints are asserted literally: `getAllFileUUIDs` deliberately hits
-// `metamodel/files/alluuids`, NOT vizrep's bare `files/alluuids` — mmar-server mounts
-// the file router under /metamodel. That prefix is easy to "correct" back into a 404.
+// The route is asserted literally: scene instances hang off a scene type, and
+// getting the path wrong turns the 3D preview into a silent 404.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SceneInstance } from "@gds/models/instance/Instance_scenes.structure";
 
@@ -29,39 +27,6 @@ const failure = {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
-});
-
-describe("backendService.getAllFileUUIDs", () => {
-  it("unwraps the server's `uuids` envelope", async () => {
-    localStorage.setItem("auth_token", "tok");
-    mocks.apiFetch.mockResolvedValue(okText({ uuids: ["u1", "u2"] }));
-
-    await expect(backendService.getAllFileUUIDs()).resolves.toEqual(["u1", "u2"]);
-  });
-
-  it("GETs metamodel/files/alluuids with a bearer token", async () => {
-    localStorage.setItem("auth_token", "tok");
-    mocks.apiFetch.mockResolvedValue(okText({ uuids: [] }));
-
-    await backendService.getAllFileUUIDs();
-
-    expect(mocks.apiFetch).toHaveBeenCalledWith("metamodel/files/alluuids", {
-      method: "GET",
-      headers: { Authorization: "Bearer tok" },
-    });
-  });
-
-  it("returns [] without calling the API when there is no token", async () => {
-    await expect(backendService.getAllFileUUIDs()).resolves.toEqual([]);
-    expect(mocks.apiFetch).not.toHaveBeenCalled();
-  });
-
-  it("swallows a failed response and returns []", async () => {
-    localStorage.setItem("auth_token", "tok");
-    mocks.apiFetch.mockResolvedValue(failure);
-
-    await expect(backendService.getAllFileUUIDs()).resolves.toEqual([]);
-  });
 });
 
 describe("backendService.sceneInstancesAllGET", () => {

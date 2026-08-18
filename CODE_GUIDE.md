@@ -192,8 +192,8 @@ All five live in [src/resources/store/](src/resources/store/):
 
 | Store | Lines | Replaces | Holds |
 |---|---:|---|---|
-| [selectedObjectStore.ts](src/resources/store/selectedObjectStore.ts) | 1645 | `SelectedObjectService` | the metamodel tree + current selection + open tabs + per-tab undo history |
-| [authStore.ts](src/resources/store/authStore.ts) | 157 | `UserService` | `currentUser`, JWT helpers |
+| [selectedObjectStore.ts](src/resources/store/selectedObjectStore.ts) | 906 | `SelectedObjectService` | the metamodel tree + current selection + open tabs + per-tab undo history |
+| [authStore.ts](src/resources/store/authStore.ts) | 135 | `UserService` | `currentUser`, JWT helpers |
 | [editorStore.ts](src/resources/store/editorStore.ts) | 52 | vizrep's globals | the Monaco buffer + preview UI state |
 | [logStore.ts](src/resources/store/logStore.ts) | 35 | `Logger` + `MdcSnackbarService` | log list + snackbar |
 | [uiStore.ts](src/resources/store/uiStore.ts) | 24 | the `"refresh"` EA channel | the refresh signal |
@@ -205,16 +205,16 @@ The in-memory copy of the entire metamodel: arrays of `sceneTypes`, `classes`,
 + `type` + `selectedTab`). Almost the whole rest of the app reads from here. It
 exposes:
 
-- collection getters/setters (`getClasses`, `setClasses`, `addClass`,
-  `removeClass`…) plus generic `getObjects(type)` / `setObjects` / `addObject` /
-  `removeObject` that dispatch on a type string;
+- one generic collection API — `getObjects(type)` / `setObjects` / `addObject` /
+  `removeObject` / `updateLocalObject` — driven by the type registry in
+  [meta-types.ts](src/resources/meta-model/meta-types.ts) rather than by a
+  `switch` per operation;
 - selection logic (`setSelectedObject(uuid)`, `getTypeFromUuid`,
   `deselectObject`, `resetObjects`);
 - a large family of `addChild(uuid, type)` / `removeChild(uuid, type)` mutators
   for editing an object's nested children, plus `updateMinMax`;
 - `updateSelectedField(path, value)` — the two-way-binding workhorse for the
   General tab;
-- `getIcon(geometry)` — see [gotchas](#gotchas), it is stranger than it looks.
 
 **Four things here are worth internalizing**, because they are the trickiest part
 of this whole codebase:
@@ -403,8 +403,9 @@ against the original.
 | [instance-utility.ts](src/resources/services/instance-utility.ts) | scene-instance / tab-context helpers |
 | [file-utility.ts](src/resources/services/file-utility.ts) | UUID → file-content cache, server-backed |
 | [expression-utility.ts](src/resources/services/expression-utility.ts) | expression evaluation for vizreps |
-| [helper-service.ts](src/resources/services/helper-service.ts) | `DataUrltoFile` / `FiletoDataUrl` |
-| [validation.ts](src/resources/services/validation.ts) | regex validation (verbatim from the original) |
+| [helper-service.ts](src/resources/services/helper-service.ts) | `dataUrlToFile` / `fileToBase64` |
+| [auth-token.ts](src/resources/services/auth-token.ts) | bearer-token storage + the `Authorization` header |
+| [vizrep-icon.ts](src/resources/services/vizrep-icon.ts) | scrapes a list icon out of a VizRep — see [gotchas](#gotchas) |
 
 Plus three small helpers in [src/resources/util/](src/resources/util/):
 `textify.ts` (port of the Aurelia value converter), `describe-error.ts`
@@ -430,19 +431,21 @@ via `getState()`.
 
 Two patterns worth knowing:
 
-- **`getCorrectType(type)`** maps the store's type tag to the REST path segment
-  (`"RelationClass"` → `"relationclasses"`, `"UserGroup"` → `"userGroups"`, …).
-  Users and usergroups also live off the `metamodel/` prefix, so most methods
-  carry a couple of `if (type === "users") url = …` special cases.
+- **`apiPathOf(type)`** (from [meta-types.ts](src/resources/meta-model/meta-types.ts))
+  builds the REST path for a type — `"RelationClass"` → `metamodel/relationclasses`,
+  `"UserGroup"` → `userGroups`. Users and usergroups are mounted off the
+  `metamodel/` prefix, which the registry records as their `apiScope`, so no
+  method needs a special case of its own.
 - **Saves are `PATCH …?hardpatch=true`.** "Hard" means the server treats the
   payload as authoritative and deletes what is absent — which is why
   [`selectedObjectRemoveReferenceRole`](src/resources/store/selectedObjectStore.ts)
   bothers to drop an emptied `role` entirely rather than leave it empty.
 
-**Deserialization is inconsistent, and that matters.** Only `getSceneTypes()` and
-`sceneInstancesAllGET()` revive their responses into gds classes (`fromJS`). The
-generic `fetchData()` used by every other list pushes the **raw parsed JSON**
-straight into the store. So most objects in `selectedObjectStore` are plain
+**Deserialization is inconsistent, and that matters.** Only scene types and
+scene instances are revived into gds classes (`fromJS`); the generic
+`loadObjects(type)` used by every other list pushes the **raw parsed JSON**
+straight into the store. The asymmetry is declared in one place, the
+`RESPONSE_QUIRKS` table at the top of the service. So most objects in `selectedObjectStore` are plain
 objects whose prototype is `Object.prototype`. Do not write `instanceof` against
 them — see [below](#type-dispatch-type-never-instanceof).
 
@@ -452,19 +455,20 @@ them — see [below](#type-dispatch-type-never-instanceof).
 
 ### [LeftNav.tsx](src/views/left-nav/LeftNav.tsx) — the category sidebar
 
-A great example of the refresh pattern. It defines `SECTIONS` (the 10 object
-categories, each with a `load` function, in the same order as the original). Its
-`useEffect` depends on `[refreshNonce]` — so it loads on mount *and* every time
+A great example of the refresh pattern. Its sections come from
+`LISTED_META_TYPES` in the type registry — order, label and `adminOnly` included
+— so adding a meta type adds its section. Its `useEffect` depends on
+`[refreshNonce]` — so it loads on mount *and* every time
 `triggerRefresh()` is called anywhere. `refreshType` decides full vs. partial
 reload (a `didMount` ref makes the very first run always a full reload).
-`adminOnly` sections (Users, Usergroups) are filtered out unless you are admin.
+Admin-only sections (Users, Usergroups) are filtered out unless you are admin.
 Each section is an MUI `Accordion` that shows a progress bar while loading, then
 an `ObjectList`.
 
 ### [ObjectList.tsx](src/views/object-list/ObjectList.tsx) → [ObjectListItem.tsx](src/views/object-list-item/ObjectListItem.tsx)
 
-`ObjectList` reads its slice of the store *by type* (`TYPE_TO_FIELD` maps
-`"Class"` → the `classes` array), provides search/add/remove, and renders one
+`ObjectList` reads its slice of the store *by type* (`getObjects("Class")`
+resolves to the `classes` array through the registry), provides search/add/remove, and renders one
 `ObjectListItem` per item inside a dense MUI `List`. Note the `useMemo` for the
 sorted+filtered list — it only
 recomputes when the list or the search term changes. "Remove selected" is enabled
@@ -472,7 +476,7 @@ only when the selection belongs to *this* section (`selectedObject` is global, s
 without that check every section's button would light up at once).
 
 `ObjectListItem` is a clickable row — a small icon (the object's own VizRep
-icon, via the store's `getIcon`) followed by its name on one dense line, with the
+icon, via `vizRepIcon`) followed by its name on one dense line, with the
 description in a tooltip. Clicking it (`onButtonClicked`) **opens the object in a
 tab, or focuses the tab it is already open in**. The original also saved the
 outgoing selection first; that was removed when tabs landed, because auto-saving
@@ -506,16 +510,16 @@ oversight, and it is pinned by a test.
 
 ### [MiddleBody.tsx](src/views/middle-body/MiddleBody.tsx) — the tab framework
 
-Given the selected object's `type`, it filters `tabDefinitions` (14 rows, copied
-verbatim from the original) down to the tabs that apply — a `SceneType` gets
+Given the selected object's `type`, it filters
+[`TAB_DEFINITIONS`](src/views/middle-body/tab-definitions.ts) (14 rows) down to
+the tabs that apply — a `SceneType` gets
 General/Attributes/Classes/Ports/RelationClasses/Procedures; an `AttributeType`
 gets General/Reference/Table; and so on. The active tab lives in the **store**
 (`selectedTab`, mirrored per open tab as `innerTab`), not in local state; a guard
 falls back to the first visible tab if the current one is not in the visible set.
 Note there is **no** effect resetting the sub-tab on selection any more — the
 store does it, and only for newly opened tabs. It renders
-`GeneralTab` for the General tab and looks up a component from `TAB_COMPONENTS`
-(13 entries) for the rest.
+`GeneralTab` for the General tab and `StructuralTab` for every other one.
 
 ### The General tab — [GeneralTab.tsx](src/views/middle-body/general-tab/GeneralTab.tsx) + [fields.tsx](src/views/middle-body/general-tab/fields.tsx)
 
@@ -546,17 +550,22 @@ download + replace flow via
 
 ### The structural tabs + [ParentChildSelect.tsx](src/views/common/ParentChildSelect.tsx)
 
-This is the cleverest reuse in the app. All 13 tabs in
-[structural-tabs/](src/views/middle-body/structural-tabs/) are thin wrappers —
-a handful of lines that hand a child array and a type string to one shared,
-generic `ParentChildSelect`:
+This is the cleverest reuse in the app. Every tab other than General shows the
+same thing — one or two lists of children, each with its own add/remove controls
+— so they are not components at all. They are the `lists` of a row in
+[tab-definitions.ts](src/views/middle-body/tab-definitions.ts), which
+[StructuralTab.tsx](src/views/middle-body/structural-tabs/StructuralTab.tsx)
+renders through one shared, generic `ParentChildSelect`:
 
-```tsx
-export default function ClassesTab() {
-  const selectedObject = useSelectedObjectStore((s) => s.selectedObject);
-  return <ParentChildSelect items={(selectedObject as any)?.classes}
-                            objecttypetoadd="Class" sortable />;
-}
+```ts
+{
+  label: "Relations",
+  types: ["RelationClass"],
+  lists: [
+    { field: "role_from", childType: "Source", sortable: true },
+    { field: "role_to", childType: "Destination", sortable: true },
+  ],
+},
 ```
 
 `ParentChildSelect` renders a searchable/sortable table of children with add (via
@@ -565,8 +574,9 @@ inline min/max editing, UI-component dropdowns, and row reordering — branching
 columns and behavior on that one type string. It subscribes to `revision` so it
 re-renders after in-place child edits.
 
-The type string is a **pseudo-type**: not always a real object type, but a routing
-key into the store's `addChild`/`removeChild` switch. `"Source"`/`"Destination"`
+`childType` is a **pseudo-type**: not always a real object type, but a routing
+key into the store's `CHILD_HANDLERS` table, which `addChild`/`removeChild`
+dispatch through. `"Source"`/`"Destination"`
 mean a relation class's `role_from`/`role_to`; `"Role"` means an attribute type's
 references; `"Column"` means a table column; `"read_right"` / `"write_right"` /
 `"delete_right"` / `"can_create_instance"` mean usergroup rights (plain uuid
@@ -700,7 +710,7 @@ decide whether to render the block at all, so the two can never disagree.
 It is tempting to write `selected instanceof Class`, and the vizrep client does
 exactly that. **It does not work here.** That client's backend service revives every
 response into a gds class (`data.map(Class.fromJS)`); this client's
-`backendService.fetchData()` pushes the raw parsed JSON straight into the store, and
+`backendService.loadObjects()` pushes the raw parsed JSON straight into the store, and
 only `SceneType` and `SceneInstance` are ever run through `fromJS`. So the objects in
 `selectedObjectStore` are plain objects whose prototype is `Object.prototype`, and
 every `instanceof` check silently falls through — which is exactly how the preview
@@ -807,7 +817,7 @@ next to Preview — the one control row this feature owns.
 - **`geometry` is typed `Function`** on the gds `MetaObject` but holds a **string** at
   runtime. Read it with `?.toString()`, write it with an `as unknown as` cast. Don't
   "fix" gds — it is shared with the server.
-- **`getIcon(geometry)` is a string scrape, not an evaluation.** It splits the
+- **`vizRepIcon(geometry)` is a string scrape, not an evaluation.** It splits the
   geometry source on `let icon` / `let map` and fishes out the first `data:` base64
   literal, falling back to a hard-coded placeholder PNG. That is why every card can
   show a thumbnail without running any VizRep code — and why renaming that variable

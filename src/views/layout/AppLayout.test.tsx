@@ -36,7 +36,7 @@ afterEach(cleanup);
 
 describe("AppLayout beforeunload guard", () => {
   it("does not block navigation when no tab is dirty", () => {
-    store().setSceneTypes([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType]);
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType], "SceneType");
     store().setSelectedObject("st-1");
     render(<AppLayout />);
 
@@ -44,7 +44,7 @@ describe("AppLayout beforeunload guard", () => {
   });
 
   it("blocks navigation while a tab has unsaved changes", () => {
-    store().setSceneTypes([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType]);
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType], "SceneType");
     store().setSelectedObject("st-1");
     store().updateSelectedField("name", "edited");
     render(<AppLayout />);
@@ -53,7 +53,7 @@ describe("AppLayout beforeunload guard", () => {
   });
 
   it("stops blocking once the edits are saved (tab marked clean)", () => {
-    store().setSceneTypes([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType]);
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType], "SceneType");
     store().setSelectedObject("st-1");
     store().updateSelectedField("name", "edited");
     render(<AppLayout />);
@@ -64,7 +64,7 @@ describe("AppLayout beforeunload guard", () => {
   });
 
   it("removes the listener on unmount", () => {
-    store().setSceneTypes([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType]);
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType], "SceneType");
     store().setSelectedObject("st-1");
     store().updateSelectedField("name", "edited");
     const { unmount } = render(<AppLayout />);
@@ -84,7 +84,7 @@ describe("AppLayout undo/redo shortcuts", () => {
   }
 
   beforeEach(() => {
-    store().setSceneTypes([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType]);
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType], "SceneType");
     store().setSelectedObject("st-1");
     store().updateSelectedField("name", "edited");
   });
@@ -152,7 +152,7 @@ describe("AppLayout shortcuts on macOS", () => {
   beforeEach(() => {
     saveSelectedObject.mockClear();
     setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36");
-    store().setSceneTypes([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType]);
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "A" }) as SceneType], "SceneType");
     store().setSelectedObject("st-1");
     store().updateSelectedField("name", "edited");
   });

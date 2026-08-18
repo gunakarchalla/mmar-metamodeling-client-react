@@ -1,38 +1,30 @@
 import { ListItem, ListItemButton, ListItemIcon, ListItemText, Box, Tooltip } from "@mui/material";
 import { MetaObject } from "@gds/models/meta/Metamodel_metaobjects.structure";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import { vizRepIcon } from "@/resources/services/vizrep-icon";
 
-interface Props {
-  object: MetaObject;
-  type: string;
-}
-
-// Ports object-card.{ts,html}. A clickable list row showing the object's icon
-// (extracted from its geometry/VizRep via the store's getIcon) and its name.
-// Clicking opens the object in a tab, or focuses the tab it is already open in.
-// The row of the *active* tab is disabled so it cannot be reselected; rows of
-// background tabs stay clickable and are marked with a dashed left border.
-//
-// The original onButtonClicked saved the outgoing selection before switching.
-// That is gone: with tabs, edits are kept alive in each tab's working copy and
-// are persisted deliberately (Save / Ctrl+S / the close prompt) — auto-saving on
-// every row click would make the unsaved-changes marker unreachable.
-export default function ObjectListItem({ object }: Props) {
-  // Subscribe to the selected object's uuid so the highlight re-renders on change.
+/**
+ * One row of a left-navigation list: the object's VizRep icon and its name.
+ *
+ * Clicking opens the object in an editor tab, or focuses the tab it is already
+ * open in. The active tab's row is disabled so it cannot be reselected; rows of
+ * objects open in a background tab stay clickable and are marked with a dashed
+ * left border.
+ *
+ * Clicking a row deliberately does not save the object being left behind: each
+ * tab keeps its edits alive in its own working copy, and saving is an explicit
+ * act (the toolbar, Ctrl+S, or the prompt raised when closing a dirty tab).
+ */
+export default function ObjectListItem({ object }: { object: MetaObject }) {
+  // Subscribing to the uuid alone keeps unrelated edits from re-rendering the row.
   const selectedUuid = useSelectedObjectStore((s) => s.selectedObject?.uuid);
   const isSelected = selectedUuid === object.uuid;
-  // Boolean selector: only rows whose open-state actually flipped re-render.
+  // A boolean selector: only rows whose open state actually flipped re-render.
   const isOpenInTab = useSelectedObjectStore((s) =>
     s.openTabs.some((t) => t.uuid === object.uuid),
   );
 
-  function onButtonClicked() {
-    useSelectedObjectStore.getState().setSelectedObject(object.uuid);
-  }
-
-  const iconSrc = useSelectedObjectStore
-    .getState()
-    .getIcon(object.geometry?.toString() ?? "");
+  const iconSrc = vizRepIcon(object.geometry?.toString() ?? "");
 
   return (
     <Tooltip
@@ -44,14 +36,14 @@ export default function ObjectListItem({ object }: Props) {
         <ListItemButton
           dense
           selected={isSelected}
-          onClick={onButtonClicked}
+          onClick={() => useSelectedObjectStore.getState().setSelectedObject(object.uuid)}
           disabled={isSelected}
           sx={{
             py: 0.25,
             pl: 1,
-            // Mirrors the old tile outline: solid for the selection, dashed for
-            // objects open in a background tab. The transparent border keeps
-            // every row the same width so the text does not shift.
+            // Solid for the selection, dashed for objects open in a background
+            // tab. Rows with neither keep a transparent border of the same
+            // width so their text does not shift.
             borderLeft: "3px",
             borderLeftStyle: isSelected
               ? "solid"

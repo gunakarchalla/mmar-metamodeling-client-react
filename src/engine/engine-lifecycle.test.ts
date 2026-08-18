@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Lifecycle contract for the `engine` mount facade (P5).
+// Lifecycle contract for the `engine` mount facade.
 //
 // In vizrep the canvas lived for the whole page life, so mount/unmount ran once.
 // Embedded in the metamodeling client's General tab it mounts and unmounts on every

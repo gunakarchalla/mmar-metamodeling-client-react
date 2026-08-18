@@ -8,62 +8,31 @@ import SignInSignUpDialog from "@/views/auth/SignInSignUpDialog";
 import AppSnackbar from "@/views/common/AppSnackbar";
 import { useAuthStore } from "@/resources/store/authStore";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
-import { backendService } from "@/resources/services/backend-service";
-import { hasCommandModifier } from "@/resources/util/platform";
+import { useGlobalShortcuts } from "./useGlobalShortcuts";
 
-// Mirrors my-app.html: TopNavBar + main body + footer, plus the cross-cutting
-// snackbar and the auth dialog. The body is gated behind authentication; the
-// sign-in dialog auto-opens when no user is logged in.
+/**
+ * The application shell: the top bar and toolbar, the body, the footer, and the
+ * two cross-cutting overlays (the sign-in dialog and the snackbar).
+ *
+ * Everything below the top bar is gated behind being signed in, and the sign-in
+ * dialog opens by itself while nobody is.
+ */
 export default function AppLayout() {
   const currentUser = useAuthStore((s) => s.currentUser);
   const [loginOpen, setLoginOpen] = useState(false);
 
-  // Auto-open the login dialog when not authenticated (signin-signup-window.attached).
   useEffect(() => {
     if (!currentUser) setLoginOpen(true);
   }, [currentUser]);
 
-  // Ctrl+S / ⌘S -> save selected object (replaces toolbar-container keydown
-  // handler). Monaco binds no Save chord of its own, so this keeps working while
-  // the code editor has focus.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (hasCommandModifier(event) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        backendService.saveSelectedObject();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  useGlobalShortcuts();
 
-  // Undo/redo on the active tab: Ctrl+Z / ⌘Z to undo, Ctrl+Shift+Z / ⌘⇧Z and
-  // Ctrl+Y / ⌘Y to redo. `key` is lower-cased because Shift uppercases it.
-  // Events from inside Monaco are skipped only to rule out a double step: the
-  // editor binds the same chords to the same store actions itself (CodeEditor's
-  // `onMount`, which it must, since Monaco stops propagation on keys it
-  // resolves). Both routes end in one undo of the active tab either way.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (!hasCommandModifier(event) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key !== "z" && key !== "y") return;
-      if ((event.target as HTMLElement | null)?.closest?.(".monaco-editor")) return;
-      event.preventDefault();
-      const store = useSelectedObjectStore.getState();
-      if (key === "y" || event.shiftKey) store.redo();
-      else store.undo();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  // Warn before a real browser navigation (reload / tab close / leaving the
-  // page) when any open tab has unsaved edits. The store is memory-only, so such
-  // a navigation drops every open tab. The in-app Refresh button has its own MUI
-  // confirm; this covers the browser-level exits it cannot intercept. Browsers
-  // show their own generic prompt and ignore any custom message, so `returnValue`
-  // just needs to be set to a non-empty value to trigger it.
+  // Warn before a real browser navigation — a reload, a closed tab, following a
+  // link away — while any editor tab holds unsaved edits, since the store lives
+  // only in memory. (The in-app Refresh button raises its own confirmation;
+  // this covers the exits it cannot intercept.) Browsers show a fixed message
+  // of their own and ignore any text supplied here, so setting `returnValue` to
+  // anything non-empty is all that is needed.
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
       if (useSelectedObjectStore.getState().hasUnsavedTabs()) {
@@ -81,8 +50,8 @@ export default function AppLayout() {
 
       {currentUser ? (
         <>
-          {/* Toolbar row (mirrors the modeling client): the action buttons moved
-              out of the top bar so the page title stays visible on laptops. */}
+          {/* The action buttons live in their own row rather than in the top
+              bar, so the page title still fits on a laptop screen. */}
           <Box
             sx={{
               height: 40,

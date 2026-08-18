@@ -5,9 +5,10 @@ import ReactDOM from "react-dom/client";
 import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import App from "./App";
 
-// Palette tuned to the original styles/color_definition.scss
-// ($primary #9ec8e1, $primary-light #BDD9EB, $secondary #ff8a65, $error #ff4747,
-//  $enableGreen #4CAF50/#388E3C, $disableRed #F44336/#D32F2F).
+/**
+ * The application theme: the MMAR palette, plus the handful of component
+ * defaults the layout depends on.
+ */
 const theme = createTheme({
   palette: {
     mode: "light",
@@ -18,32 +19,25 @@ const theme = createTheme({
     background: { default: "#ffffff" },
   },
   components: {
-    // The app is a fixed-viewport shell: AppLayout is 100vh tall and every
-    // scrollable region (left nav, middle body, log window) scrolls inside
-    // itself, so the *document* must never scroll. Nothing enforced that, so
-    // anything sticking out past the viewport grew the document's scrollable
-    // area and flashed an app-wide scrollbar. The usual culprit is a Tooltip:
-    // it is portalled into <body>, and once Popper.js initialises it replaces
-    // MUI's initial `position: fixed` with its default `absolute` strategy plus
-    // a `transform` — and an absolutely positioned, transformed box does count
-    // towards document overflow. Scrolling a list fast opens and repositions
-    // those tooltips under the moving cursor, so the flash repeats for as long
-    // as the flick lasts. Clipping at the document level ends it at the source.
+    // The shell is exactly one viewport tall and every scrollable region — the
+    // left navigation, the editor, the log — scrolls inside itself, so the
+    // document itself must never scroll. Without this, anything sticking out
+    // past the viewport grows the document and flashes an app-wide scrollbar.
+    // Tooltips are the usual culprit: they are portalled into <body>, and once
+    // positioned they switch to an absolute, transformed box, which does count
+    // towards document overflow. Flicking through a long list opens and moves
+    // those tooltips under the cursor, so the flash repeats for as long as the
+    // flick lasts.
     MuiCssBaseline: {
       styleOverrides: {
         "html, body, #root": { height: "100%" },
         "html, body": { overflow: "hidden" },
       },
     },
-    // Tooltips with arrows mirror the MDC tooltip look used throughout the
-    // original; buttons keep mixed-case labels (MUI defaults to UPPERCASE).
-    // `preventOverflow.altAxis` keeps a tooltip inside the viewport on its
-    // cross axis as well: Popper guards only the main axis by default, so the
-    // `placement="left"`/`"right"` tooltips of the log entries and left-nav rows
-    // used to hang past the top/bottom edge — which is what the document had to
-    // grow to accommodate, and what would now be clipped instead. MUI appends
-    // these modifiers to its own (arrow), and Popper merges same-named modifiers
-    // into its defaults, so this only flips that one option.
+    // `preventOverflow.altAxis` keeps a tooltip inside the viewport on its cross
+    // axis too — only the main axis is guarded by default, so the left- and
+    // right-placed tooltips of the log entries and navigation rows would hang
+    // past the top or bottom edge and be clipped by the rule above.
     MuiTooltip: {
       defaultProps: {
         arrow: true,
@@ -56,9 +50,8 @@ const theme = createTheme({
         },
       },
     },
-    // All buttons render black regardless of variant/color. The per-variant
-    // overrides win over MUI's internal color styles, so even buttons that
-    // pass color="inherit"/"primary" end up black.
+    // Buttons render black whatever variant or colour they ask for: these
+    // per-variant overrides outrank MUI's own colour styles.
     MuiButton: {
       styleOverrides: {
         root: { textTransform: "none" },

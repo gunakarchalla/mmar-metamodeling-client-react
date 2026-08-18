@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// CodeEditor wiring (P5.3). Monaco itself is replaced by a plain <textarea>: this
+// Monaco itself is replaced by a plain <textarea>: this
 // suite is about the three data paths around the editor, not about Monaco painting.
 //   - D2 live commit: every change writes both the buffer and selectedObject.geometry,
 //     so Save / Ctrl+S always persists what the editor shows.

@@ -15,69 +15,46 @@ import {
   Paper,
 } from "@mui/material";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import { candidatesFor } from "@/views/common/child-candidates";
+import { useObjectTable } from "@/views/common/object-table";
 
-// A minimal single-select object picker used by the General-tab Attribute
-// (objecttype "Attribute Type") and Relationclass (objecttype "Bendpoint")
-// variants. It mirrors the relevant slice of modal-object-select: resolve the
-// candidate list for the pseudo-type, search by name/description, and on confirm
-// dispatch through the store's addChild(uuid, objecttype).
-//
-// NOTE: the full-featured modal-object-select (multi-select, sortable columns,
-// reused across the structural tabs) is built in Phase 6; this is the focused
-// single-select picker the General tab needs.
-export default function InlineObjectPicker({
-  objecttype,
-  label,
-}: {
-  objecttype: string;
-  label?: string;
-}) {
+/**
+ * A single-select object picker for the General tab's "points at one object"
+ * fields — an attribute's type, a relation class's bendpoint.
+ *
+ * Its list-editing counterpart is `ModalObjectSelect`, which picks several
+ * objects at once and needs the extra columns to tell them apart.
+ */
+export default function InlineObjectPicker({ childType }: { childType: string }) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const addChild = useSelectedObjectStore((s) => s.addChild);
   const getTypeFromUuid = useSelectedObjectStore((s) => s.getTypeFromUuid);
 
-  // Resolve candidate objects exactly like modal-object-select.attached():
-  // Bendpoint -> Class candidates, everything else -> getObjects(objecttype).
-  const candidateType = objecttype === "Bendpoint" ? "Class" : objecttype;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const items: any[] = useSelectedObjectStore.getState().getObjects(candidateType) ?? [];
-
-  const titleType = objecttype === "Role" ? "reference" : objecttype;
-
-  const filtered = items.filter((item) => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    // Match on name, description AND the object's type so that searching for a
-    // type name (e.g. "SceneType") returns every object of that type, not just
-    // the few whose name/description happen to contain the text.
-    const type = getTypeFromUuid(item.uuid);
-    return (
-      item.name?.toLowerCase().includes(s) ||
-      item.description?.toLowerCase().includes(s) ||
-      type?.toLowerCase().includes(s)
-    );
-  });
+  const { searchTerm, setSearchTerm, visibleRows } = useObjectTable(
+    candidatesFor(childType),
+    getTypeFromUuid,
+    { sortable: false },
+  );
 
   function pick(uuid: string) {
-    addChild(uuid, objecttype);
+    addChild(uuid, childType);
+    setSearchTerm("");
     setOpen(false);
-    setSearch("");
   }
 
   return (
     <>
       <Button variant="outlined" size="small" onClick={() => setOpen(true)}>
-        {label ?? `Select ${titleType}`}
+        Select {childType}
       </Button>
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Select {titleType}</DialogTitle>
+        <DialogTitle>Select {childType}</DialogTitle>
         <DialogContent>
           <TextField
             label="Search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
             fullWidth
             size="small"
             sx={{ my: 1 }}
@@ -91,7 +68,7 @@ export default function InlineObjectPicker({
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filtered.map((item) => (
+                {visibleRows.map((item) => (
                   <TableRow
                     key={item.uuid}
                     hover

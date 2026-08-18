@@ -7,89 +7,71 @@ import {
   LinearProgress,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import {
+  LISTED_META_TYPES,
+  META_TYPES,
+  MetaTypeName,
+} from "@/resources/meta-model/meta-types";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { useAuthStore } from "@/resources/store/authStore";
 import { useUiStore } from "@/resources/store/uiStore";
 import { backendService } from "@/resources/services/backend-service";
 import ObjectList from "@/views/object-list/ObjectList";
 
-interface Section {
-  type: string;
-  label: string;
-  load: () => Promise<unknown>;
-  adminOnly?: boolean;
-}
+/**
+ * The left navigation: one collapsible section per meta type, each showing a
+ * progress bar while its objects load and then the list itself.
+ *
+ * Reloading is driven by the UI store's refresh signal. A signal that names a
+ * source ("Refresh button", signing in) reloads everything; an unnamed one —
+ * published after a save or a create — reloads only the type being edited, so
+ * the rest of the tree is left as it is.
+ */
 
-// Order mirrors left-nav.html. This is render order only — the full reload
-// fetches every section concurrently (see `refresh`), so the original's
-// "Users is loaded last" no longer describes when the request goes out.
-const SECTIONS: Section[] = [
-  { type: "SceneType", label: "Scene types", load: () => backendService.getSceneTypes() },
-  { type: "Class", label: "Classes", load: () => backendService.getClasses() },
-  { type: "RelationClass", label: "Relation classes", load: () => backendService.getRelationClasses() },
-  { type: "Attribute", label: "Attributes", load: () => backendService.getAttributes() },
-  { type: "AttributeType", label: "Attribute types", load: () => backendService.getAttributeTypes() },
-  { type: "Port", label: "Ports", load: () => backendService.getPorts() },
-  { type: "File", label: "Files", load: () => backendService.getFiles() },
-  { type: "Procedure", label: "Procedures", load: () => backendService.getProcedures() },
-  { type: "User", label: "Users", load: () => backendService.getUsers(), adminOnly: true },
-  { type: "UserGroup", label: "Usergroups", load: () => backendService.getUserGroups(), adminOnly: true },
-];
+type LoadingByType = Partial<Record<MetaTypeName, boolean>>;
 
-type LoadingMap = Record<string, boolean>;
-const ALL_LOADING: LoadingMap = SECTIONS.reduce((acc, s) => {
-  acc[s.type] = true;
-  return acc;
-}, {} as LoadingMap);
+const ALL_LOADING: LoadingByType = Object.fromEntries(
+  LISTED_META_TYPES.map((type) => [type, true]),
+);
 
-// Ports left-nav.{ts,html}: one MUI Accordion per object category, each showing
-// a LinearProgress while its list loads then an ObjectList. The "refresh"
-// EventAggregator channel is replaced by the uiStore refreshNonce/refreshType.
 export default function LeftNav() {
-  const [loading, setLoading] = useState<LoadingMap>(ALL_LOADING);
+  const [loading, setLoading] = useState<LoadingByType>(ALL_LOADING);
   const isAdmin = useAuthStore((s) => s.currentUser?.isAdmin ?? false);
   const refreshNonce = useUiStore((s) => s.refreshNonce);
 
-  const setLoadingFor = useCallback((type: string, value: boolean) => {
+  const setLoadingFor = useCallback((type: MetaTypeName, value: boolean) => {
     setLoading((prev) => ({ ...prev, [type]: value }));
   }, []);
 
-  // Ports left-nav.ts refresh(refreshType). A defined refreshType ("Refresh
-  // button"/login) does a full reload (resetObjects + every list); undefined
-  // (post-save/create) reloads only the currently selected type.
   const refresh = useCallback(
     async (refreshType?: string) => {
       const store = useSelectedObjectStore.getState();
       const currentType = refreshType ? undefined : store.type;
 
-      const section = SECTIONS.find((s) => s.type === currentType);
-      if (currentType && section) {
-        setLoadingFor(section.type, true);
-        await section.load();
-        setLoadingFor(section.type, false);
-        return;
-      }
-      if (currentType && !section) {
-        // Role (or any non-list type) selected: nothing to reload.
+      if (currentType) {
+        // Reload just this one section — but only if it has one. A role, say, is
+        // reachable from an attribute type and has no list of its own.
+        const type = LISTED_META_TYPES.find((name) => name === currentType);
+        if (!type) return;
+        setLoadingFor(type, true);
+        await backendService.loadObjects(type);
+        setLoadingFor(type, false);
         return;
       }
 
-      // default: full reload. The sections are independent (each writes its own
-      // store collection), so they load concurrently rather than one after the
-      // other — ten sequential round-trips were the bulk of the startup wait.
-      // Each clears its own spinner as it lands, so the lists fill in
-      // progressively instead of all at once. `finally` per section (rather than
-      // one clear after Promise.all) keeps a single failed request from leaving
-      // that accordion spinning forever, which the sequential loop did do: it
-      // aborted on the first throw and left every later section loading.
+      // Full reload. The sections are independent — each writes its own store
+      // collection — so they load concurrently and fill in as they land rather
+      // than one after another. Clearing each spinner in its own `finally`
+      // (rather than once after `Promise.all`) keeps one failed request from
+      // leaving its accordion spinning forever.
       store.resetObjects();
       setLoading({ ...ALL_LOADING });
       await Promise.all(
-        SECTIONS.map(async (s) => {
+        LISTED_META_TYPES.map(async (type) => {
           try {
-            await s.load();
+            await backendService.loadObjects(type);
           } finally {
-            setLoadingFor(s.type, false);
+            setLoadingFor(type, false);
           }
         }),
       );
@@ -97,32 +79,26 @@ export default function LeftNav() {
     [setLoadingFor],
   );
 
-  // Initial load on mount + every refresh trigger. The first run uses the
-  // current refreshType from the store (undefined initially -> full reload,
-  // matching left-nav attached() -> refresh()).
-  const didMount = useRef(false);
+  // Load on mount, then on every refresh signal. The first run ignores the
+  // store's refresh type so that starting up always does a full load.
+  const hasMounted = useRef(false);
   useEffect(() => {
-    const refreshType = didMount.current
-      ? useUiStore.getState().refreshType
-      : undefined;
-    didMount.current = true;
+    const refreshType = hasMounted.current ? useUiStore.getState().refreshType : undefined;
+    hasMounted.current = true;
     void refresh(refreshType);
+    // Re-runs on each refresh signal; `refresh` itself is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshNonce]);
 
   return (
     <>
-      {SECTIONS.filter((s) => !s.adminOnly || isAdmin).map((section) => (
-        <Accordion key={section.type} disableGutters>
+      {LISTED_META_TYPES.filter((type) => !META_TYPES[type].adminOnly || isAdmin).map((type) => (
+        <Accordion key={type} disableGutters>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography>{section.label}</Typography>
+            <Typography>{META_TYPES[type].label}</Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ p: 0 }}>
-            {loading[section.type] ? (
-              <LinearProgress />
-            ) : (
-              <ObjectList type={section.type} />
-            )}
+            {loading[type] ? <LinearProgress /> : <ObjectList type={type} />}
           </AccordionDetails>
         </Accordion>
       ))}

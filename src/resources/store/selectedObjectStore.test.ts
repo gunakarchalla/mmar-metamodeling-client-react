@@ -6,34 +6,13 @@ import { useEditorStore } from "./editorStore";
 
 const reset = () => useSelectedObjectStore.getState().resetObjects();
 
-describe("selectedObjectStore.getIcon", () => {
-  beforeEach(reset);
-
-  it("returns the default png data-url when vizRep is empty", () => {
-    const icon = useSelectedObjectStore.getState().getIcon("");
-    expect(icon.startsWith("data:image/png;base64,")).toBe(true);
-  });
-
-  it("extracts the data-url defined after 'let icon'", () => {
-    const vizRep = "function r(){ let icon = 'data:image/png;base64,ABC123'; }";
-    const icon = useSelectedObjectStore.getState().getIcon(vizRep);
-    expect(icon).toBe("data:image/png;base64,ABC123");
-  });
-
-  it("falls back to a data-url defined after 'let map' when no icon", () => {
-    const vizRep = "function r(){ let map = 'data:image/png;base64,MAPDATA'; }";
-    const icon = useSelectedObjectStore.getState().getIcon(vizRep);
-    expect(icon).toBe("data:image/png;base64,MAPDATA");
-  });
-});
-
 describe("selectedObjectStore.getTypeFromUuid round-trip", () => {
   beforeEach(reset);
 
   it("resolves the type for a uuid present in a collection", () => {
     const store = useSelectedObjectStore.getState();
     const st = SceneType.fromJS({ uuid: "abc-123", name: "Test" }) as SceneType;
-    store.setSceneTypes([st]);
+    store.setObjects([st], "SceneType");
     expect(store.getTypeFromUuid("abc-123")).toBe("SceneType");
     expect(store.getObjectFromUuid("abc-123")).toBe(st);
   });
@@ -48,11 +27,11 @@ describe("selectedObjectStore open tabs", () => {
 
   beforeEach(() => {
     reset();
-    store().setSceneTypes([
+    store().setObjects([
       SceneType.fromJS({ uuid: "st-1", name: "One" }) as SceneType,
       SceneType.fromJS({ uuid: "st-2", name: "Two" }) as SceneType,
       SceneType.fromJS({ uuid: "st-3", name: "Three" }) as SceneType,
-    ]);
+    ], "SceneType");
   });
 
   it("opens one tab per object and activates the newest", () => {
@@ -179,11 +158,11 @@ describe("selectedObjectStore undo/redo", () => {
 
   beforeEach(() => {
     reset();
-    store().setSceneTypes([
+    store().setObjects([
       SceneType.fromJS({ uuid: "st-1", name: "One" }) as SceneType,
       SceneType.fromJS({ uuid: "st-2", name: "Two" }) as SceneType,
-    ]);
-    store().setClasses([Class.fromJS({ uuid: "cl-1", name: "Klass" }) as Class]);
+    ], "SceneType");
+    store().setObjects([Class.fromJS({ uuid: "cl-1", name: "Klass" }) as Class], "Class");
   });
 
   it("has nothing to undo on a freshly opened tab", () => {
@@ -312,9 +291,9 @@ describe("selectedObjectStore undo/redo", () => {
   // the geometry has to move it too — and a step that does not must leave the
   // (beautified, D8) buffer exactly as the user sees it.
   it("pushes a restored geometry into the editor buffer, and only then", () => {
-    store().setClasses([
+    store().setObjects([
       Class.fromJS({ uuid: "cl-2", name: "Drawn", geometry: "original()" }) as Class,
-    ]);
+    ], "Class");
     store().setSelectedObject("cl-2");
     useEditorStore.getState().setCode("beautified original()");
 

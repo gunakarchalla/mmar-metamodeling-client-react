@@ -4,16 +4,18 @@ import { logger } from "./logger";
 import { backendService } from "./backend-service";
 
 /**
- * Port of the old `fileUtility.ts`. Local file cache (UUID -> content string)
- * backed by the server when missing. DI is stripped (constructor deps become
- * module-singleton imports); body unchanged otherwise.
+ * A cache of the files a VizRep pulls in while drawing — 3D models and textures,
+ * keyed by uuid.
+ *
+ * VizReps request the same file on every redraw, so fetching it once and keeping
+ * the decoded content in memory is what makes the live preview usable.
  */
 export class FileUtility {
   private globalObjectInstance = globalObject;
   private logger = logger;
 
+  /** Put `content` in the cache under `uuid`, replacing anything already there. */
   async addFile(uuid: UUID, content: string) {
-    // Check if the file already exists
     if (this.globalObjectInstance.localFiles.has(uuid)) {
       this.logger.log(`File with UUID ${uuid} already exists. Overwriting...`, "warn");
     } else {
@@ -22,51 +24,52 @@ export class FileUtility {
     this.globalObjectInstance.localFiles.set(uuid, content);
   }
 
+  /**
+   * The cached content for `uuid`, fetching and caching it on a miss.
+   *
+   * Text-based formats (glTF JSON, raw binary streams) are decoded as text; the
+   * rest become data URLs, which is what a texture is assigned from.
+   */
   async getFile(uuid: UUID): Promise<string | undefined> {
     this.logger.log(`Retrieving file with UUID ${uuid}.`, "info");
 
-    if (this.globalObjectInstance.localFiles.has(uuid)) {
+    const cached = this.globalObjectInstance.localFiles.get(uuid);
+    if (cached !== undefined) {
       this.logger.log(`File with UUID ${uuid} found in local storage.`, "info");
-      return this.globalObjectInstance.localFiles.get(uuid);
-    } else {
-      // If the file is not found in local storage, fetch it from the server
-      this.logger.log(
-        `File with UUID ${uuid} not found in local storage. Fetching from server...`,
-        "warn",
-      );
-      const file = await backendService.getFileByUUID(uuid);
-      // This client's backendService.getFileByUUID returns File | undefined
-      // (the vizrep client's returned File). Bail out if the file is missing.
-      if (!file) {
-        this.logger.log(`File with UUID ${uuid} could not be fetched from server.`, "warn");
-        return undefined;
-      }
-
-      //convert the file to a string
-      let str: string;
-      if (file.type.includes("model/gltf+json") || file.type.includes("application/octet-stream")) {
-        str = await file.text();
-      } else {
-        str = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const result = typeof reader.result === "string" ? reader.result : "";
-            resolve(result);
-          };
-          reader.onerror = (error) => {
-            reject(error);
-          };
-          reader.readAsDataURL(file);
-        });
-      }
-      this.addFile(uuid, str);
-      this.logger.log(
-        `File with UUID ${uuid} fetched from server and added to local storage.`,
-        "info",
-      );
-      return str;
+      return cached;
     }
+
+    this.logger.log(
+      `File with UUID ${uuid} not found in local storage. Fetching from server...`,
+      "warn",
+    );
+    const file = await backendService.getFileByUUID(uuid);
+    if (!file) {
+      this.logger.log(`File with UUID ${uuid} could not be fetched from server.`, "warn");
+      return undefined;
+    }
+
+    const isText =
+      file.type.includes("model/gltf+json") || file.type.includes("application/octet-stream");
+    const content = isText ? await file.text() : await readAsDataUrl(file);
+
+    await this.addFile(uuid, content);
+    this.logger.log(
+      `File with UUID ${uuid} fetched from server and added to local storage.`,
+      "info",
+    );
+    return content;
   }
 }
 
+function readAsDataUrl(file: globalThis.File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Application-wide cache; every VizRep draws from the same one. */
 export const fileUtility = new FileUtility();

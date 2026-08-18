@@ -56,7 +56,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("GeneralTab — geometry field dispatch (D1)", () => {
+describe("GeneralTab — how geometry is edited per type", () => {
   // VizRepGeometryEditor and GeneralTabProcedure are React.lazy children, so the
   // first render of each shows the Suspense fallback and the real element only
   // appears once the (mocked) dynamic import resolves — hence findBy, not queryBy.
@@ -100,7 +100,7 @@ describe("GeneralTab — geometry field dispatch (D1)", () => {
   });
 });
 
-describe("GeneralTab — geometry field placement (D4)", () => {
+describe("GeneralTab — where the geometry field sits", () => {
   // Node.DOCUMENT_POSITION_FOLLOWING
   const FOLLOWING = 4;
 

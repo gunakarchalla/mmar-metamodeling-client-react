@@ -17,21 +17,17 @@ import {
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
-import { HelperService } from "@/resources/services/helper-service";
+import { dataUrlToFile } from "@/resources/services/helper-service";
 import { backendService } from "@/resources/services/backend-service";
 
-const helperService = new HelperService();
-
-// Ports dialog-upload-file.{ts,html}. Replaces the Uppy Dashboard with a
-// self-contained MUI dropzone (native <input type="file"> + HTML5 drag/drop) —
-// no extra dependency (lighter than Uppy, recorded in state.json.sharedMemory).
-//
-// Parity preserved: single-file restriction, image-only compression options
-// (targetWidth/quality, defaults 100) with validation, conversion to a DataURL
-// then to bytes via the reused HelperService, writing into
-// selectedObject.data.data plus type/name/compress/targetWidth/quality, and
-// finally backendService.saveSelectedObject() (the ?compress=... query is
-// already handled there).
+/**
+ * Replace a file object's content: a drop zone that takes one file, optional
+ * image compression, and a save that writes the bytes onto the selected object
+ * and PATCHes it.
+ *
+ * Compression is offered only for images, and its parameters are sent as query
+ * options on the save so the server does the resizing.
+ */
 export default function DialogUploadFile({
   open,
   onClose,
@@ -54,7 +50,7 @@ export default function DialogUploadFile({
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // mirrors uppy file-removed: reset compression state.
+  /** Back to "no file chosen", compression off. */
   function resetState() {
     setFile(null);
     setDisableCompress(true);
@@ -63,17 +59,13 @@ export default function DialogUploadFile({
     setCompress(false);
   }
 
-  // mirrors validateFile(): only images can be compressed.
-  function validateFile(f: File) {
-    setDisableCompress(!f.type.startsWith("image/"));
-  }
-
-  // single-file restriction (maxNumberOfFiles: 1).
+  /** Takes the first file only — a file object holds exactly one. */
   function acceptFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    const f = files[0];
-    setFile(f);
-    validateFile(f);
+    const chosen = files[0];
+    setFile(chosen);
+    // Only images can be resized, so the option is offered only for them.
+    setDisableCompress(!chosen.type.startsWith("image/"));
   }
 
   function onInputChange(e: ChangeEvent<HTMLInputElement>) {
@@ -108,7 +100,6 @@ export default function DialogUploadFile({
     }
   }
 
-  // mirrors compressChanged(): reset errors when off, validate when on.
   function onCompressToggle(checked: boolean) {
     setCompress(checked);
     if (!checked) {
@@ -125,7 +116,7 @@ export default function DialogUploadFile({
     onClose();
   }
 
-  // mirrors upload(): DataURL -> File -> bytes, write onto selectedObject, save.
+  /** Read the chosen file as bytes, write them onto the object, and save. */
   function upload() {
     if (!file || !obj) return;
     const reader = new FileReader();
@@ -134,22 +125,22 @@ export default function DialogUploadFile({
       try {
         setUploading(true);
         const dataURL = reader.result?.toString() ?? "";
-        const newFile = await helperService.DataUrltoFile(dataURL, file.name, file.type);
+        const newFile = await dataUrlToFile(dataURL, file.name, file.type);
         const arrayBuffer = await newFile.arrayBuffer();
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const o = obj as any;
-        if (!o.data) o.data = { type: "Buffer", data: [] };
-        o.data.data = Array.from(new Uint8Array(arrayBuffer));
-        o.type = newFile.type;
-        o.name = newFile.name;
-        o.compress = compress;
-        o.targetWidth = targetWidth;
-        o.quality = quality;
+        // The server stores file content as a serialised Node Buffer; the
+        // compression options ride along and are turned into query parameters
+        // by the save.
+        const target = obj as unknown as Record<string, unknown>;
+        target.data = { type: "Buffer", data: Array.from(new Uint8Array(arrayBuffer)) };
+        target.type = newFile.type;
+        target.name = newFile.name;
+        target.compress = compress;
+        target.targetWidth = targetWidth;
+        target.quality = quality;
 
         await backendService.saveSelectedObject();
-        // re-ref selectedObject so GeneralTabFile rebuilds the preview
-        // (replaces the original SelectedObjectChanged publish).
+        // Republish the object so the preview above rebuilds from the new bytes.
         commitSelected();
       } finally {
         setUploading(false);

@@ -17,9 +17,10 @@ interface Props {
   onClose: () => void;
 }
 
-// Replaces signin-signup-window. Sign In / Sign Up against authStore.
-// On successful login it triggers the global refresh (replacing the original
-// eventAggregator.publish("refresh", ...)).
+/**
+ * Sign in, or register a new account. Either one, on success, triggers a full
+ * refresh so the left navigation loads the metamodel for the new session.
+ */
 export default function SignInSignUpDialog({ open, onClose }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

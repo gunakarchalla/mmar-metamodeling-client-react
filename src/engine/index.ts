@@ -1,19 +1,18 @@
 /**
- * engine/index.ts — COMPOSITION ROOT + mount facade.
+ * The 3D engine's composition root, and the facade the React canvas drives it
+ * through.
  *
- * Each engine module already exports its own module singleton (the P2/P3 pattern
- * that replaced Aurelia `@singleton()` DI). This file imports them in dependency
- * order — global-definition first, then the leaf helpers (ray-helper, mouse-object,
- * resize, animator), then the handlers, then the initiator — so the import side
- * effects (the `new ClassName()` at the bottom of each file) run in a deterministic
- * order. P3 has no circular engine deps yet; P4/P5 add graphic-context + the
- * dynamics handlers, which must keep being wired through this file in order to
- * avoid the circular-import crashes noted in plan §3.
+ * Each engine module exports a single instance of itself, created as a side
+ * effect of being imported. This file imports them in dependency order — the
+ * global state first, then the leaf helpers, then the handlers, then the
+ * initiator — so those instances are constructed in an order that never asks for
+ * one that does not exist yet. Every engine module must be reached through this
+ * file for that to hold; importing one directly can reintroduce the circular
+ * imports the ordering exists to avoid.
  *
- * The `engine` facade exposes `mount(container)` / `unmount()` for the React
- * `ThreeCanvas` (P8): it replaces the old `my-app.attached()` flow
- * (`initiator.init()` + `initiator.initEventListeners()`) and the old
- * `#container` DOM-polling — the container element is passed in directly.
+ * `mount(container)` / `unmount(token)` are the whole public surface: the canvas
+ * component hands in the element to render into and gets back a token
+ * identifying its mount.
  */
 import { ARButton } from "three/examples/jsm/webxr/ARButton.js";
 import { globalObject } from "@/engine/global-definition";
@@ -23,7 +22,7 @@ import { resize } from "@/engine/resize";
 import { animator } from "@/engine/animator";
 import { arInitiator } from "@/engine/ar-initiator";
 import { graphicContext } from "@/engine/graphic-context";
-// global-* state holders the dynamics handlers depend on (P5).
+// State holders the interaction handlers read and write.
 import { globalSelectedObject } from "@/engine/global-selected-object";
 import { globalClassObject } from "@/engine/global-class-object";
 import { globalRelationclassObject } from "@/engine/global-relationclass-object";
@@ -32,8 +31,8 @@ import { interactionHandler } from "@/engine/interaction-handler";
 import { instanceCreationHandler } from "@/engine/instance-creation-handler";
 import { transformControlsEvents } from "@/engine/transform-control-events";
 import { lineUpdateService } from "@/engine/line-update-service";
-// vizrep-update-checker subscribes to the bus in its constructor — importing it
-// here registers the checkForVizRepUpdate* listeners when the engine module loads.
+// Subscribes to the event bus in its constructor, so importing it here is what
+// registers the VizRep-update listeners.
 import { vizrepUpdateChecker } from "@/engine/vizrep-update-checker";
 import { sceneInitiator } from "@/engine/scene-initiator";
 import { initiator } from "@/engine/initiator";
@@ -59,50 +58,48 @@ export {
   initiator,
 };
 
-// init() is expensive (builds cameras / scene / controls / mock objects) and must
-// run exactly ONCE for the lifetime of the singleton engine.
+// Building the cameras, scene, controls and mock objects is expensive, and must
+// happen exactly once for the life of the page.
 //
-// A plain `let initialized = false` set *after* `await initiator.init()` does not
-// hold: two mounts that race the same in-flight init both observe `false` and both
-// run the heavy branch. In the metamodeling client that is the normal case, not an
-// edge case — ThreeCanvas mounts/unmounts on every object/type/tab switch (plan
-// §4.5), and StrictMode double-invokes the effect in dev. A duplicate init pushes a
-// second MockSceneType, adds a second mousePointer3d to the scene, builds a second
-// pair of OrbitControls over the same canvas, and re-registers the window resize
-// listener — all unremovable.
+// A boolean set *after* the await would not achieve that: two mounts racing the
+// same in-flight init would both see `false` and both run it. Here that is the
+// normal case rather than an edge case — the canvas mounts and unmounts on every
+// object, type and tab switch, and React's strict mode double-invokes the effect
+// in development. A second init would push another mock scene type, add another
+// mouse pointer to the scene, build a second set of orbit controls over the same
+// canvas and register another resize listener, none of them removable.
 //
-// So we memoize the init *promise* (not a boolean). Concurrent mounts await the
-// same init; only the first creates it.
+// Memoizing the init *promise* is what makes concurrent mounts await one init.
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
-// Resolves once the one-time init has completed, i.e. once the mock SceneType,
-// the scene and the cameras exist and the render loop is running.
+// Resolves once that one-time init has completed — once the mock scene type, the
+// scene and the cameras exist and the render loop is running.
 //
-// Callers outside ThreeCanvas hold no mount token and cannot await the mount
-// promise, but they still must not touch engine state before init: the preview
-// pipeline needs globalObject.sceneTypes[0], which init creates. The selection
-// -> preview trigger fires from a parent effect, and React runs child effects
-// first, so ThreeCanvas has always *started* the mount by then — but mount() is
-// async, so "started" is not "ready". This promise is that missing edge.
+// Code outside the canvas component holds no mount token and cannot await the
+// mount, but must not touch engine state before init either: the preview
+// pipeline needs the mock scene type that init creates. The selection-to-preview
+// trigger fires from a parent effect and React runs child effects first, so the
+// canvas has always *started* mounting by then — but starting is not being
+// ready, and this promise is that difference.
 //
-// It never rejects: a failed init leaves it pending until a later mount retries and
-// succeeds. Awaiters therefore stay parked while the canvas is dead, which is the
-// intended behaviour — there is nothing for them to draw into.
+// It never rejects. A failed init leaves it pending until a later mount succeeds,
+// so awaiters stay parked while the canvas is dead — which is right, since there
+// is nothing to draw into.
 let signalReady: () => void;
 const readyPromise = new Promise<void>((resolve) => {
   signalReady = resolve;
 });
 
-// Monotonic mount token. Every mount() takes the next token and becomes the engine's
-// owner. An attach or an unmount whose token is no longer current has been superseded
-// by a newer mount and must not touch the renderer.
+// Every mount takes the next token and becomes the engine's owner. An attach or
+// an unmount whose token is no longer current has been superseded and must leave
+// the renderer alone.
 //
-// This is what makes the async mount/sync unmount interleaving safe. StrictMode's
-// mount -> unmount -> mount reuses the *same* container element, so ownership cannot
-// be decided by comparing elements; and because unmount is deferred until the
-// in-flight mount settles (see ThreeCanvas), a stale cleanup would otherwise detach
-// the canvas that the *newer* mount just attached.
+// This is what makes the interleaving of an async mount and a synchronous unmount
+// safe. Strict mode's mount → unmount → mount reuses the *same* container
+// element, so ownership cannot be decided by comparing elements; and since the
+// unmount is deferred until the in-flight mount settles, a stale cleanup would
+// otherwise detach the canvas the newer mount just attached.
 let mountToken = 0;
 
 export const engine = {
@@ -124,8 +121,8 @@ export const engine = {
       initPromise = (async () => {
         await initiator.init();
         await initiator.initEventListeners();
-        // Phase 11: turn on WebXR + wire session start/end. Harmless on devices
-        // without XR (the ARButton just reports "AR NOT SUPPORTED").
+        // Enable WebXR and wire the session callbacks. Harmless where XR is
+        // unavailable — the AR button then just reports that it is unsupported.
         arInitiator.enableXR();
         initialized = true;
         signalReady();
@@ -141,15 +138,15 @@ export const engine = {
     // will attach it to its own container. Attaching here would steal the canvas.
     if (token !== mountToken) return token;
 
-    // initCamera() unconditionally selects the 3D camera while initOrbitControls()
-    // honours globalObject.threeDimensional, so a toggle landing before init()
-    // settles leaves 2D controls driving the 3D camera. Re-applying the flag makes
-    // camera and controls agree on every mount; it is a no-op when they already do.
+    // Init picks the 3D camera unconditionally but honours the 2D/3D flag when
+    // building the orbit controls, so a toggle that lands while init is still in
+    // flight leaves 2D controls driving the 3D camera. Re-applying the flag makes
+    // the two agree on every mount, and is a no-op when they already do.
     engine.setThreeDimensional(globalObject.threeDimensional);
 
-    // init() already appended the canvas into `elementContainer`; for every later
-    // mount this is the re-attach. Both paths converge here so there is exactly one
-    // place that starts the render loop.
+    // Init has already appended the canvas to the container; for every later
+    // mount this is the re-attach. Both paths converge here, so there is exactly
+    // one place that starts the render loop.
     const dom = globalObject.renderer.domElement;
     if (dom.parentElement !== container) {
       container.appendChild(dom);
@@ -164,12 +161,10 @@ export const engine = {
   /**
    * Switch the live preview between 2D (orthographic) and 3D (perspective).
    *
-   * The old client only ever set `threeDimensional` once, at init
-   * (`initiator.initOrbitControls` picks the matching camera/controls). Here the
-   * toolbar exposes a runtime toggle, so this swaps the active camera + orbit
-   * controls the same way init does and flags a re-render. Cameras/controls only
-   * exist after `mount()`/`init()`, so before that we just record the flag and the
-   * next `init()` honours it.
+   * Swaps the active camera and orbit controls the same way init does, then
+   * flags a redraw. Cameras and controls only exist once the engine has been
+   * mounted, so before that this just records the flag for the next init to
+   * honour.
    */
   setThreeDimensional(is3d: boolean): void {
     globalObject.threeDimensional = is3d;
@@ -187,12 +182,12 @@ export const engine = {
   },
 
   /**
-   * Phase 11: create three's ARButton bound to our renderer. It feature-detects
-   * `immersive-ar` and starts/ends the XR session on click (which fires the
-   * sessionstart/sessionend listeners registered by `arInitiator.enableXR()`);
-   * on unsupported browsers it renders an inert "AR NOT SUPPORTED" label, so the
-   * non-AR path is unaffected. `hand-tracking` is requested optionally for the
-   * pinch-to-grab hands in `arInitiator.initHands()`.
+   * A button that starts and ends an immersive AR session for this renderer.
+   *
+   * It feature-detects `immersive-ar` itself, rendering an inert "AR NOT
+   * SUPPORTED" label where the browser has none, so callers need no check of
+   * their own. Hand tracking is requested optionally, for the pinch-to-grab
+   * hands the engine sets up when a session starts.
    */
   createARButton(): HTMLElement {
     arInitiator.enableXR();
@@ -215,9 +210,9 @@ export const engine = {
   unmount(token?: number): void {
     if (token !== undefined && token !== mountToken) return;
 
-    // Nothing to detach if init never ran (mount rejected, or unmount raced an init
-    // that failed) — the renderer exists from module load, but the loop was never
-    // started and the canvas was never appended.
+    // Safe even if init never ran (a rejected mount, or an unmount racing a failed
+    // init): the renderer exists from module load, but with no loop started and
+    // nothing appended, both calls below are no-ops.
     globalObject.renderer.setAnimationLoop(null);
     const dom = globalObject.renderer.domElement;
     if (dom.parentElement) {
@@ -226,16 +221,15 @@ export const engine = {
   },
 
   /**
-   * Await the one-time init. Resolves immediately once it has completed, and stays
-   * pending until some ThreeCanvas has mounted successfully. Use this before reading
-   * or mutating engine state (scene, cameras, globalObject.sceneTypes) from anywhere
-   * that did not itself call mount().
+   * Await the one-time init. Resolves immediately once it has completed, and
+   * stays pending until some canvas has mounted successfully. Await this before
+   * reading or writing engine state from anywhere that did not itself mount.
    */
   whenReady(): Promise<void> {
     return readyPromise;
   },
 
-  /** Test seam: has the heavy one-time init completed? */
+  /** Has the one-time init completed? Exposed for tests. */
   get isInitialized(): boolean {
     return initialized;
   },

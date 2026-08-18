@@ -24,10 +24,10 @@ const undoBtn = () => screen.getByRole("button", { name: "undo" }) as HTMLButton
 const redoBtn = () => screen.getByRole("button", { name: "redo" }) as HTMLButtonElement;
 
 function openTwo() {
-  store().setSceneTypes([
+  store().setObjects([
     SceneType.fromJS({ uuid: "st-1", name: "Alpha" }) as SceneType,
     SceneType.fromJS({ uuid: "st-2", name: "Beta" }) as SceneType,
-  ]);
+  ], "SceneType");
   store().setSelectedObject("st-1");
   store().setSelectedObject("st-2");
 }

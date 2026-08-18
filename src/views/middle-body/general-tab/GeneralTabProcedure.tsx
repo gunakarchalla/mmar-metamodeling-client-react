@@ -1,27 +1,21 @@
-import { Box, Typography } from "@mui/material";
-import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
+import FieldsetSection from "@/views/common/FieldsetSection";
 import BoundCodeEditor from "@/views/code-editor/BoundCodeEditor";
+import { useSelectedObjectForm } from "./useSelectedObjectForm";
 
-// Ports general-tab-procedure.{ts,html}: the Procedure definition. The original
-// was a plain textarea; a procedure definition is JavaScript, so it gets a
-// Monaco editor instead (same treatment as the VizRep geometry code).
+/**
+ * Procedure-only fields: the procedure body. It is JavaScript, so it is edited
+ * in a code editor rather than a plain text area.
+ */
 export default function GeneralTabProcedure() {
-  const obj = useSelectedObjectStore((s) => s.selectedObject);
-  const update = useSelectedObjectStore((s) => s.updateSelectedField);
-  if (!obj) return null;
+  const { object, update } = useSelectedObjectForm();
+  if (!object) return null;
 
   return (
-    <Box
-      component="fieldset"
-      sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 1.5, mt: 2 }}
-    >
-      <Typography component="legend" variant="caption" color="text.secondary">
-        Procedure definition
-      </Typography>
+    <FieldsetSection legend="Procedure definition">
       <BoundCodeEditor
-        value={(obj as { definition?: string }).definition ?? ""}
-        onChange={(v) => update("definition", v)}
+        value={(object as { definition?: string }).definition ?? ""}
+        onChange={(value) => update("definition", value)}
       />
-    </Box>
+    </FieldsetSection>
   );
 }

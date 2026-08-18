@@ -1,9 +1,12 @@
 import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import {
+  Class,
   ClassInstance,
-  RelationclassInstance,
+  Port,
   PortInstance,
+  Relationclass,
+  RelationclassInstance,
   SceneInstance,
   SceneType,
 } from "@gds";
@@ -23,21 +26,27 @@ import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { eventBus } from "@/resources/services/event-bus";
 import { describeError } from "@/resources/util/describe-error";
 
-// `parseObj` from the old object-card: the geometry string may itself be a JS
-// expression that needs one eval pass before it is handed to parseMetaFunction.
+/**
+ * Evaluate one layer of the stored geometry. The value on the object may itself
+ * be an expression that yields the VizRep source, so it is unwrapped once before
+ * being compiled.
+ */
 function parseObj(obj: string): string {
   return Function('"use strict";return (' + obj + ")")();
 }
 
-/** The geometry a meta object carries, as a string (gds types it `Function`, §4.4). */
+/**
+ * A meta object's geometry as a string. The shared data structures type the
+ * field as a function, but it holds source text at runtime.
+ */
 function geometryOf(object: { geometry?: unknown } | null | undefined): string {
   return (object?.geometry as string | undefined)?.toString() ?? "";
 }
 
 /**
- * Tear the engine's instance state down and rebuild an empty mock scene around
- * `sceneType` (the old `object-card.onButtonClicked` reset + `initTree`). Leaves the
- * canvas showing the bare grid; the caller draws into it.
+ * Tear the engine's instance state down and rebuild an empty scene around
+ * `sceneType`, leaving the canvas showing the bare grid for the caller to draw
+ * into.
  */
 async function resetPreviewScene(sceneType: SceneType): Promise<SceneInstance> {
   await graphicContext.resetInstance();
@@ -55,7 +64,8 @@ async function resetPreviewScene(sceneType: SceneType): Promise<SceneInstance> {
   await instanceUtility.createTabContextSceneInstance(sceneInstance);
   globalObject.selectedTab = 0;
 
-  // --- mock scene tree (object-card.initTree) ---
+  // The engine navigates a tree of scene types and their instances; here that
+  // tree holds exactly the one scene the preview draws into.
   (sceneType as unknown as { children: SceneInstance[] }).children = [sceneInstance];
   globalObject.sceneTypes = [sceneType];
   globalObject.sceneTree = [sceneType] as unknown as typeof globalObject.sceneTree;
@@ -66,11 +76,11 @@ async function resetPreviewScene(sceneType: SceneType): Promise<SceneInstance> {
 /**
  * Empty the canvas back to the bare grid.
  *
- * `runPreview` deliberately returns *before* the reset when the geometry does not
- * compile, so the last good render survives a half-typed keystroke (D2 live commit).
- * That is right while typing and wrong on a selection change: the previous object's
- * render would linger under the new object's name. So the selection path clears
- * explicitly when the newly selected object has nothing to draw.
+ * A build that cannot compile the geometry returns *before* resetting, so the
+ * last good render survives a half-typed keystroke. That is right while typing
+ * and wrong on a selection change, where the previous object's render would
+ * linger under the new object's name — so selecting clears explicitly when the
+ * newly selected object has nothing to draw.
  */
 export async function clearPreview(): Promise<void> {
   if (globalObject.sceneTypes.length === 0) return;
@@ -80,17 +90,12 @@ export async function clearPreview(): Promise<void> {
 }
 
 /**
- * The VizRep preview pipeline — a faithful port of the old
- * `views/object-card/object-card.ts` `onButtonClicked()` build flow, decoupled
- * from the card. In the old client this ran on every card click; here it is the
- * Preview button's action (plan §308/§315/§316 "Done when"): selecting an object
- * loads its code (P7), and clicking Preview builds the mock scene + instance,
- * runs the VizRep function and draws the result into the live 3D canvas.
+ * Draw the selected object into the 3D canvas.
  *
- * Reads the currently selected meta object (whose `.geometry` the editor flushed
- * via the previewButtonClicked -> updatedGeometryValue handshake) from
- * selectedObjectStore, and the mock SceneType/Class set up at engine mount from
- * globalObject. Mutates engine state directly (the engine reads globalObject.*).
+ * Builds a scene and a single instance of the object, runs its VizRep function
+ * and renders the result. Reads the object from the selection store and the
+ * scaffolding scene type the engine set up when it started; writes engine state
+ * directly, since that is what the engine renders from.
  */
 export async function runPreview(): Promise<void> {
   const store = useSelectedObjectStore.getState();
@@ -101,46 +106,38 @@ export async function runPreview(): Promise<void> {
     return;
   }
 
-  // Dispatch on the store's `type` discriminator, NOT on `instanceof`.
+  // Dispatch on the store's `type` tag, never on `instanceof`: the backend
+  // service pushes raw parsed JSON into the store — only scene types and scene
+  // instances are ever revived into their classes — so a class, relation class
+  // or port here is a plain object and every `instanceof` check would fail.
   //
-  // vizrep's backend-service hydrated every response (`data.map(Class.fromJS)`), so
-  // its store held real gds instances and `selected instanceof Class` held. This
-  // client's `backendService.fetchData()` pushes the raw parsed JSON straight into
-  // the store (only SceneType and SceneInstance are ever run through `fromJS`), so
-  // Classes / Relationclasses / Ports are plain objects whose prototype is
-  // `Object.prototype`. Every `instanceof` check therefore fell through to the
-  // "not a Class, RelationClass or Port" branch and the preview silently drew
-  // nothing — for all three types.
-  //
-  // `type` is the same signal GeneralTab uses to decide whether to render this
-  // block at all, so the two can never disagree about what is selected.
+  // It is also the same signal the General tab uses to decide whether to render
+  // this block at all, so the two can never disagree about what is selected.
   const selectedType = store.type;
-  // The mock SceneType is created during initiator.init() at engine mount; if it
-  // is missing the canvas has not mounted yet.
+  // The scaffolding scene type is created when the engine starts up; without it
+  // the canvas has not mounted yet.
   if (globalObject.sceneTypes.length === 0) {
     logger.log("Engine not ready for preview (canvas not mounted)", "error");
     return;
   }
   const sceneType = globalObject.sceneTypes[0];
 
-  // Compile the user-authored geometry BEFORE touching engine state.
+  // Compile the geometry *before* touching engine state.
   //
-  // Both `parseObj` and `parseMetaFunction` are pure `new Function(...)` evaluations
-  // (they build the VizRep function; `runVizRepFunction` is what executes it), so
-  // hoisting them above the reset below is behaviour-preserving on the happy path.
-  // On the failure path it is the whole point: geometry is live-committed on every
-  // keystroke (D2), so a half-typed snippet is the normal state of the buffer. If we
-  // reset first and parse second, one bad character both throws and wipes the last
-  // good preview. Parsing first leaves the canvas showing the last good render.
+  // Compiling only builds the VizRep function; running it comes later, so doing
+  // this first changes nothing when the source is valid. When it is not, it is
+  // the whole point: every keystroke is committed, so a half-typed snippet is
+  // the normal state of the buffer, and resetting first would let one bad
+  // character wipe the last good preview.
   const rawGeometry = geometryOf(selected);
   if (rawGeometry.trim().length === 0) {
     logger.log("Cannot preview: geometry is empty", "error");
     return;
   }
 
-  // Typed `string` to match `graphicContext.runVizRepFunction(vizRepCode: string)`,
-  // which in fact receives the compiled function object — a pre-existing signature
-  // lie in the engine, preserved here rather than "fixed".
+  // Typed as a string to match the engine's signature, which in fact receives
+  // the compiled function object. The mismatch is the engine's; correcting it
+  // belongs there rather than here.
   let metaFunction: string;
   try {
     metaFunction = await metaUtility.parseMetaFunction(parseObj(rawGeometry));
@@ -149,24 +146,18 @@ export async function runPreview(): Promise<void> {
     return;
   }
 
-  // Bridge the loaded meta objects (selectedObjectStore) onto the mock SceneType.
-  // Every meta lookup used by the pipeline and the attribute window —
-  // metaUtility.getMetaClass / getMetaRelationclass / getMetaPort — resolves the
-  // concept from `tabContext.sceneType.{classes,relationclasses,ports}`, and the
-  // tab-context scene type IS this mock SceneType. The old client wired this once
-  // in `left-nav.ts` (`sceneType.classes = classes; sceneType.relationclasses =
-  // relationClasses; sceneType.ports = ports;`); the React LeftNav only fills the
-  // store, so without this the mock SceneType stays empty, getMetaClass returns
-  // undefined, and createClassInstance throws on `metaclass.name` — which broke
-  // both the 3D preview and the (preview-driven) attribute window.
-  sceneType.classes = store.getClasses();
-  sceneType.relationclasses = store.getRelationClasses();
-  sceneType.ports = store.getPorts();
+  // Copy the loaded metamodel onto the scaffolding scene type. Every concept
+  // lookup the pipeline and the attribute controls make resolves against the
+  // open scene type's own classes, relation classes and ports — so without this
+  // it stays empty, the lookups return nothing, and building an instance throws.
+  sceneType.classes = (store.getObjects("Class") ?? []) as Class[];
+  sceneType.relationclasses = (store.getObjects("RelationClass") ?? []) as Relationclass[];
+  sceneType.ports = (store.getObjects("Port") ?? []) as Port[];
 
-  // --- reset engine state, then rebuild an empty mock scene + tab context ---
+  // --- reset engine state, then rebuild an empty scene to draw into ---
   await resetPreviewScene(sceneType);
 
-  // --- create the instance for the selected meta object ---
+  // --- create the one instance the preview shows ---
   let instance: ClassInstance | RelationclassInstance | PortInstance;
   if (selectedType === "RelationClass") {
     instance = await instanceCreationHandler.createRelationclassInstance(
@@ -203,7 +194,7 @@ export async function runPreview(): Promise<void> {
     return;
   }
 
-  // --- evaluate the dynamic VizRep function (compiled above, before the reset) ---
+  // --- run the VizRep function compiled above ---
   await graphicContext.resetInstance();
   await graphicContext.runVizRepFunction(metaFunction);
 
@@ -266,35 +257,31 @@ export async function runPreview(): Promise<void> {
   }, 100);
 }
 
-// Selection changes faster than a preview builds: every step of runPreview is async
-// (createClassInstance, runVizRepFunction, the GLTF/troika loads inside drawVizRep), so
-// clicking three cards in a row would otherwise interleave three builds over the one
-// shared globalObject — the last render to finish wins, and it is not necessarily the
-// last object clicked. `generation` makes a superseded build drop out at its next await
-// point; the queue keeps two builds from ever running concurrently.
+// Selections change faster than a preview builds, and every step of a build is
+// asynchronous — so clicking three objects in a row would otherwise interleave
+// three builds over the one shared engine, and the last render to finish would
+// win rather than the last object clicked. The generation counter makes a
+// superseded build drop out at its next await; the queue keeps two builds from
+// running at once.
 let generation = 0;
 let queue: Promise<unknown> = Promise.resolve();
 
 /**
- * Draw the currently selected object into the preview canvas — the selection-change
- * counterpart of the Preview button.
+ * Draw the currently selected object — the selection-change counterpart of the
+ * Preview button.
  *
- * Without this the canvas only ever changed when Preview was clicked: selecting an
- * object showed an empty canvas, and selecting a second object left the first one's
- * render on screen while every other field switched.
- *
- * Reads the selection at draw time rather than taking it as an argument, so a build
- * that waited in the queue picks up the newest object, never a stale one.
+ * Reads the selection at draw time rather than taking it as an argument, so a
+ * build that waited in the queue picks up the newest object, never a stale one.
  */
 export function previewSelectedObject(): Promise<void> {
   const mine = ++generation;
 
   const run = queue.then(async () => {
     if (mine !== generation) return;
-    // globalObject.sceneTypes[0] (the mock SceneType) only exists after the engine's
-    // one-time init. On the very first selection ThreeCanvas has started mounting but
-    // not finished, so without this await runPreview would bail out with "Engine not
-    // ready" and the canvas would stay empty until the user clicked Preview.
+    // The scaffolding scene type only exists once the engine has started up. On
+    // the very first selection the canvas has begun mounting but not finished,
+    // so without this the build would bail out and the canvas would stay empty
+    // until Preview was pressed.
     await engine.whenReady();
     if (mine !== generation) return;
 
@@ -306,8 +293,8 @@ export function previewSelectedObject(): Promise<void> {
     await runPreview();
   });
 
-  // The queue must survive a failed build, so it chains the *caught* promise; the
-  // caller still sees the rejection through the returned one.
+  // The queue must survive a failed build, so it chains the *caught* promise;
+  // the caller still sees the rejection through the returned one.
   queue = run.catch(() => {});
   return run;
 }
