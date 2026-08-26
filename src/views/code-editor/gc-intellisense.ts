@@ -61,8 +61,10 @@ declare type GraphicContext = {
   graphic_sphere(radius: number, widthSegments: number, heightSegments: number, color?: string, map?: string, x_rel?: number, y_rel?: number, z_rel?: number): Promise<any>;
   /** Create a 3D cylinder object. */
   graphic_cylinder(radiusTop: number, radiusBottom: number, height: number, radialSegments: number, heightSegments: number, color?: string, map?: string, x_rel?: number, y_rel?: number, z_rel?: number, openEnded?: boolean, thetaStart?: number, thetaLength?: number): Promise<any>;
-  /** Load a predefined GLTF object. */
-  graphic_gltf(objectString: string, x_rel?: number, y_rel?: number, z_rel?: number): Promise<any>;
+  /** Load a predefined GLTF object. The optional scale multiplies the scale baked into the model's own nodes. */
+  graphic_gltf(objectString: string | ArrayBuffer, x_rel?: number, y_rel?: number, z_rel?: number, scale?: number[]): Promise<any>;
+  /** Load an STL mesh. */
+  graphic_stl(buffer: ArrayBuffer, scale?: number[], x_rel?: number, y_rel?: number, z_rel?: number, color?: string): Promise<any>;
   /** Create a 3D button object. */
   graphic_button(object: any, expression?: string): Promise<any>;
   /** Create a 3D text object. */

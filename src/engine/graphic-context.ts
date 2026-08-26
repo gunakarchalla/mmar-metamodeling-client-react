@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
@@ -288,7 +289,12 @@ export class GraphicContext {
 
   //load a predefined gltf to the object
   //!! this must load async in the vizRep
-  async graphic_gltf(objectString: string, x_rel?: number, y_rel?: number, z_rel?: number) {
+  async graphic_gltf(objectString: string | ArrayBuffer, x_rel?: number, y_rel?: number, z_rel?: number, scale?: number[]) {
+    // A glTF node carries its own scale in its node matrix — that is how a vizRep
+    // authors e.g. the flattened sphere of "Place" — and `mergeOjects` later bakes
+    // `mesh.scale` into the geometry. An explicit `scale` therefore has to multiply
+    // that authored scale, and no `scale` at all must leave it untouched.
+    const extraScale = scale && scale.length === 3 ? scale : undefined;
     // return array
     const meshes: THREE.Mesh[] = [];
 
@@ -313,18 +319,43 @@ export class GraphicContext {
       });
 
       this.metaUtility.findType(anyobject.scene, "Mesh", objects);
+      this.metaUtility.findType(anyobject.scene, "SkinnedMesh", objects);
 
       for (const mesh of objects) {
         //move the object by the relative position
         mesh.position.x = x_rel ? mesh.position.x + x_rel : mesh.position.x;
         mesh.position.y = y_rel ? mesh.position.y + y_rel : mesh.position.y;
         mesh.position.z = z_rel ? mesh.position.z + z_rel : mesh.position.z;
+        if (extraScale) {
+          mesh.scale.set(mesh.scale.x * extraScale[0], mesh.scale.y * extraScale[1], mesh.scale.z * extraScale[2]);
+        }
 
         this.object3D[mesh.uuid] = mesh;
         meshes.push(mesh);
       }
     });
     return meshes;
+  }
+
+  //load an STL mesh to the object
+  async graphic_stl(buffer: ArrayBuffer, scale?: number[], x_rel?: number, y_rel?: number, z_rel?: number, color?: string) {
+    const loader = new STLLoader();
+    const geometry = loader.parse(buffer);
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshPhongMaterial({ color: color || "#b0b0b0" });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    const effectiveScale = scale && scale.length === 3 ? scale : [1, 1, 1];
+    mesh.scale.set(effectiveScale[0], effectiveScale[1], effectiveScale[2]);
+
+    mesh.position.x = x_rel ? mesh.position.x + x_rel : mesh.position.x;
+    mesh.position.y = y_rel ? mesh.position.y + y_rel : mesh.position.y;
+    mesh.position.z = z_rel ? mesh.position.z + z_rel : mesh.position.z;
+
+    this.object3D[mesh.uuid] = mesh;
+
+    return [mesh];
   }
 
   //this creates a 3D text
