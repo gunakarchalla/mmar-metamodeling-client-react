@@ -12,7 +12,7 @@ import {
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { useLogStore } from "@/resources/store/logStore";
 import { useAuthStore } from "@/resources/store/authStore";
-import { apiFetch } from "./api";
+import { apiFetch, errorMessageOf } from "./api";
 import { authHeaders } from "./auth-token";
 import { dataUrlToFile } from "./helper-service";
 
@@ -90,7 +90,7 @@ export class BackendService {
 
       const response = await apiFetch(path, { method: "GET", headers });
       if (!response.ok) {
-        throw new Error(`${response.statusText} - ${await response.text()}`);
+        throw new Error(`${response.statusText} - ${await errorMessageOf(response)}`);
       }
 
       const { envelope, revive } = RESPONSE_QUIRKS[name] ?? {};
@@ -120,7 +120,7 @@ export class BackendService {
     try {
       const response = await apiFetch(`metamodel/files/${uuid}`);
       if (!response.ok) {
-        throw new Error(`${response.statusText} - ${await response.text()}`);
+        throw new Error(`${response.statusText} - ${await errorMessageOf(response)}`);
       }
       const blob = await response.blob();
       return new globalThis.File([blob], uuid, { type: blob.type });
@@ -260,7 +260,7 @@ export class BackendService {
 
       const response = await apiFetch(`${path}/${uuid}`, { method: "DELETE", headers });
       if (!response.ok) {
-        throw new Error(`${response.statusText} - ${await response.text()}`);
+        throw new Error(`${response.statusText} - ${await errorMessageOf(response)}`);
       }
       store().removeObject(uuid);
       return response;
@@ -284,7 +284,7 @@ export class BackendService {
       const url = `instances/sceneTypes/${encodeURIComponent(sceneTypeUUID)}/sceneInstances`;
       const response = await apiFetch(url, { method: "GET", headers });
       if (!response.ok) {
-        throw new Error(`${response.statusText} - ${await response.text()}`);
+        throw new Error(`${response.statusText} - ${await errorMessageOf(response)}`);
       }
 
       const data = await response.json();

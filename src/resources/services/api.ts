@@ -23,3 +23,29 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
     headers,
   });
 }
+
+/**
+ * The message out of a failed response, for showing to the user.
+ *
+ * The server answers every refusal as `{"error": "..."}`. Eight metamodel delete
+ * endpoints used to answer the bare message instead — a 409 naming the object
+ * that blocks the deletion is the one a user actually reads — so the raw body
+ * was good enough to log verbatim. It is not any more: the envelope would reach
+ * the log window as `{"error":"Cannot delete ..."}`.
+ *
+ * Falls back to the raw text for a response that is not JSON, or not the
+ * envelope, which is what the raw-body file endpoints return.
+ */
+export async function errorMessageOf(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const body: unknown = JSON.parse(text);
+    if (typeof body === "string") return body;
+    if (body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string") {
+      return (body as { error: string }).error;
+    }
+  } catch {
+    // Not JSON; the raw text is the best there is.
+  }
+  return text;
+}
