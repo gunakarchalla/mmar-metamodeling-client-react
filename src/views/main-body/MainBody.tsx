@@ -87,7 +87,7 @@ export default function MainBody() {
           the shell deliberately cannot scroll. Set on all three panels. */}
       <Panel
         defaultSize={18}
-        minSize={12}
+        minSize={0}
         maxSize={35}
         style={{ overflowY: "auto", overscrollBehavior: "contain" }}
       >
@@ -112,7 +112,7 @@ export default function MainBody() {
 
       <ResizeHandle />
 
-      <Panel defaultSize={20} minSize={12} maxSize={40}>
+      <Panel defaultSize={20} minSize={0} maxSize={40}>
         <LogWindow />
       </Panel>
     </PanelGroup>
