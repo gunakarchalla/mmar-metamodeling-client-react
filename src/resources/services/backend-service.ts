@@ -55,6 +55,19 @@ const PLACEHOLDER_FILE_DATA_URL =
 /** Default attribute type assigned to a newly created attribute. */
 const DEFAULT_ATTRIBUTE_TYPE_UUID = "85897325-c2b3-4ca7-8902-8120300a08dc";
 
+/**
+ * Pattern given to a newly created attribute type, so it starts out validating
+ * text rather than being unconstrained; the author narrows it from there.
+ *
+ * It enumerates well formed UTF-8 byte sequences. Applied to a character string
+ * — which is what `new RegExp` in GeneralTabAttribute and the `~` operator in
+ * the database both do — that comes out as printable ASCII plus tab, CR and LF.
+ * This is the platform's existing convention: the same pattern is what
+ * mmar-database gives the built-in String type and uses as the column default.
+ */
+const DEFAULT_ATTRIBUTE_TYPE_REGEX =
+  "^([\\x09\\x0A\\x0D\\x20-\\x7E]|[\\xC2-\\xDF][\\x80-\\xBF]|\\xE0[\\xA0-\\xBF][\\x80-\\xBF]|[\\xE1-\\xEC\\xEE\\xEF][\\x80-\\xBF]{2}|\\xED[\\x80-\\x9F][\\x80-\\xBF]|\\xF0[\\x90-\\xBF][\\x80-\\xBF]{2}|[\\xF1-\\xF3][\\x80-\\xBF]{3}|\\xF4[\\x80-\\x8F][\\x80-\\xBF]{2})*$";
+
 /** Human-readable plural used in error messages, e.g. "scene types". */
 const labelOf = (name: MetaTypeName) => META_TYPES[name].label.toLowerCase();
 
@@ -136,6 +149,8 @@ export class BackendService {
    * exceptions all come from the server's own shape: users are created through
    * the sign-up route, files need a real (placeholder) upload body, attributes
    * need a type to point at, and relation classes need both role ends to exist.
+   * Attribute types are the one exception that is not the server's doing: they
+   * are given a default pattern so a new type starts out usable.
    */
   async createNewObject(type: string) {
     const descriptor = metaTypeDescriptor(type);
@@ -170,6 +185,9 @@ export class BackendService {
       } else {
         if (type === "Attribute") {
           content.attribute_type = { uuid: DEFAULT_ATTRIBUTE_TYPE_UUID };
+        }
+        if (type === "AttributeType") {
+          content.regex_value = DEFAULT_ATTRIBUTE_TYPE_REGEX;
         }
         if (type === "RelationClass") {
           content.role_from = { uuid: uuidv4() };
