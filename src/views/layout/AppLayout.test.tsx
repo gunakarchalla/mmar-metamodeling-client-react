@@ -12,7 +12,7 @@ vi.mock("@/views/top-nav-bar/TopNavBar", () => ({ default: () => null }));
 vi.mock("@/views/toolbar/Toolbar", () => ({ default: () => null }));
 vi.mock("@/views/footer/AppFooter", () => ({ default: () => null }));
 vi.mock("@/views/main-body/MainBody", () => ({ default: () => null }));
-vi.mock("@/views/auth/SignInSignUpDialog", () => ({ default: () => null }));
+vi.mock("@/views/auth/SignInDialog", () => ({ default: () => null }));
 vi.mock("@/views/common/AppSnackbar", () => ({ default: () => null }));
 const { saveSelectedObject } = vi.hoisted(() => ({ saveSelectedObject: vi.fn() }));
 vi.mock("@/resources/services/backend-service", () => ({

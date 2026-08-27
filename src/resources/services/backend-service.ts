@@ -288,6 +288,39 @@ export class BackendService {
   }
 
   /**
+   * Set a user's password. Administrators only, as the server enforces.
+   *
+   * Separate from `saveObject` rather than part of the object it saves: a user is
+   * saved by PATCHing the whole object, so a bound password field would put the
+   * plaintext into the store, into the tab's undo history, and onto the wire on
+   * every unrelated save — and the server ignores a password sent that way.
+   *
+   * Reports its outcome instead of swallowing it, unlike the calls above, because
+   * the caller has to know whether to clear the field it was typed into.
+   */
+  async setUserPassword(uuid: UUID, password: string): Promise<boolean> {
+    try {
+      const headers = authHeaders();
+      if (!headers) return false;
+
+      const response = await apiFetch(`users/${uuid}/password`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ password }),
+      });
+      if (!response.ok) {
+        throw new Error(`${response.statusText} - ${await errorMessageOf(response)}`);
+      }
+
+      log("Password set", "info");
+      return true;
+    } catch (error) {
+      log(`Error setting password: ${error}`, "error");
+      return false;
+    }
+  }
+
+  /**
    * Every scene instance built from `sceneTypeUUID`. Used by the 3D preview to
    * populate its mock scene.
    */

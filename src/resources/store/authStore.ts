@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { jwtDecode } from "jwt-decode";
-import { apiFetch } from "@/resources/services/api";
+import { apiFetch, errorMessageOf } from "@/resources/services/api";
 import { clearAuthToken, readAuthToken, writeAuthToken } from "@/resources/services/auth-token";
 import { useLogStore } from "./logStore";
 
@@ -31,7 +31,18 @@ interface AuthState {
   currentUser: CurrentUser | null;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  signup: (username: string, password: string) => Promise<boolean>;
+  /**
+   * Change one's own password, proving identity with the current one.
+   *
+   * Runs while signed out and sends no token: the server authorises it on the
+   * current password alone, and rate limits it alongside sign-in. It does not
+   * open a session — the new password is what signs the user in afterwards.
+   */
+  resetPassword: (
+    username: string,
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<boolean>;
   isAuthenticated: () => boolean;
   isAdmin: () => boolean;
   isTokenExpired: (token: string) => boolean;
@@ -78,18 +89,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  async signup(username, password) {
+  async resetPassword(username, currentPassword, newPassword) {
     try {
-      const response = await apiFetch("login/signup", {
+      const response = await apiFetch("login/password", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          username,
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
       });
-      if (!response.ok) return false;
+      if (!response.ok) {
+        // The server distinguishes a wrong current password (401) from a new one
+        // it will not accept (400), so its own message is the one worth showing.
+        useLogStore.getState().log(await errorMessageOf(response), "error");
+        return false;
+      }
 
-      writeAuthToken((await response.json()).token);
+      useLogStore.getState().log(`Password reset for ${username}`, "info");
       return true;
     } catch (error) {
-      console.error("There was an error signing up:", error);
+      console.error("There was an error resetting the password:", error);
       throw error;
     }
   },

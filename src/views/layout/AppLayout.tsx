@@ -4,7 +4,7 @@ import TopNavBar from "@/views/top-nav-bar/TopNavBar";
 import Toolbar from "@/views/toolbar/Toolbar";
 import AppFooter from "@/views/footer/AppFooter";
 import MainBody from "@/views/main-body/MainBody";
-import SignInSignUpDialog from "@/views/auth/SignInSignUpDialog";
+import SignInDialog from "@/views/auth/SignInDialog";
 import AppSnackbar from "@/views/common/AppSnackbar";
 import { useAuthStore } from "@/resources/store/authStore";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
@@ -70,7 +70,7 @@ export default function AppLayout() {
 
       <AppFooter />
 
-      <SignInSignUpDialog open={loginOpen} onClose={() => setLoginOpen(false)} />
+      <SignInDialog open={loginOpen} onClose={() => setLoginOpen(false)} />
       <AppSnackbar />
     </Box>
   );
