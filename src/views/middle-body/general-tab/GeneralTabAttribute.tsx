@@ -5,6 +5,7 @@ import ObjectPreviewCard from "@/views/common/ObjectPreviewCard";
 import { BoundNumber } from "./fields";
 import InlineObjectPicker from "./InlineObjectPicker";
 import { useSelectedObjectForm } from "./useSelectedObjectForm";
+import { unwrapRegexLiteral } from "@/resources/util/regex";
 
 /**
  * Attribute-only fields: which attribute type it has, how many values it may
@@ -27,7 +28,9 @@ export default function GeneralTabAttribute() {
     facets.length === 0 &&
     !!attributeType?.regex_value &&
     !!attribute.default_value &&
-    !new RegExp(attributeType.regex_value).test(attribute.default_value);
+    !new RegExp(unwrapRegexLiteral(attributeType.regex_value as unknown as string)).test(
+      attribute.default_value,
+    );
 
   return (
     <FieldsetSection legend="Attribute">
