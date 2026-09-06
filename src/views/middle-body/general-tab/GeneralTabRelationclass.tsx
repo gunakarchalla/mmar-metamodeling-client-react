@@ -24,7 +24,7 @@ export default function GeneralTabRelationclass() {
 
   return (
     <FieldsetSection legend="Relationclass">
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: "center", mt: 1 }}>
         <Typography>Bendpoint:</Typography>
         {bendpoint && (
           <ObjectPreviewCard name={bendpoint.name} geometry={bendpoint.geometry} />

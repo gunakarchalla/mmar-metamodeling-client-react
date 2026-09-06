@@ -55,12 +55,14 @@ export default function ObjectList({ type }: { type: string }) {
         value={searchTerm}
         disabled={!isAuthenticated}
         onChange={(event) => setSearchTerm(event.target.value)}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon />
-            </InputAdornment>
-          ),
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          },
         }}
         sx={{ mb: 1 }}
       />

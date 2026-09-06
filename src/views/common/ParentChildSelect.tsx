@@ -65,7 +65,9 @@ function MinMaxCell({
       size="small"
       label={field === "min" ? "Min" : "Max"}
       value={item[field] ?? 0}
-      inputProps={{ min: field === "min" ? 0 : (item.min ?? 0), step: 1 }}
+      slotProps={{
+        htmlInput: { min: field === "min" ? 0 : (item.min ?? 0), step: 1 },
+      }}
       onChange={(event) => {
         const value = event.target.value === "" ? 0 : Number(event.target.value);
         onCommit(
@@ -246,13 +248,15 @@ export default function ParentChildSelect({
           size="small"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
-          inputProps={{ maxLength: 256 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
+          slotProps={{
+            htmlInput: { maxLength: 256 },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            },
           }}
         />
 

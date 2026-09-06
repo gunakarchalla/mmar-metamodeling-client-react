@@ -15,7 +15,7 @@ import {
   Typography,
 } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlineOutlined";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { dataUrlToFile } from "@/resources/services/helper-service";
 import { backendService } from "@/resources/services/backend-service";
@@ -194,9 +194,11 @@ export default function DialogUploadFile({
         {file && (
           <Stack
             direction="row"
-            alignItems="center"
-            justifyContent="space-between"
-            sx={{ mt: 1.5 }}
+            sx={{
+              alignItems: "center",
+              justifyContent: "space-between",
+              mt: 1.5,
+            }}
           >
             <Typography variant="body2" noWrap title={file.name}>
               {file.name} ({file.type || "unknown"})
@@ -216,7 +218,7 @@ export default function DialogUploadFile({
               value={targetWidth}
               error={!!targetWidthError}
               helperText={targetWidthError}
-              inputProps={{ min: 1 }}
+              slotProps={{ htmlInput: { min: 1 } }}
               onChange={(e) => {
                 const v = Number(e.target.value);
                 setTargetWidth(v);
@@ -230,7 +232,7 @@ export default function DialogUploadFile({
               value={quality}
               error={!!qualityError}
               helperText={qualityError}
-              inputProps={{ min: 1, max: 100, step: 1 }}
+              slotProps={{ htmlInput: { min: 1, max: 100, step: 1 } }}
               onChange={(e) => {
                 const v = Number(e.target.value);
                 setQuality(v);

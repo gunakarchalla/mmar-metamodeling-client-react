@@ -77,7 +77,7 @@ export default function GeneralTabFile() {
 
   return (
     <FieldsetSection legend="File">
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1 }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: "center", mt: 1 }}>
         <Typography>Content:</Typography>
         {preview && (
           <Box

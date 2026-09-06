@@ -45,7 +45,7 @@ export function BoundText({
       onChange={(event) => update(path, event.target.value)}
       multiline={multiline}
       rows={multiline ? rows : undefined}
-      inputProps={maxLength ? { maxLength } : undefined}
+      slotProps={{ htmlInput: maxLength ? { maxLength } : undefined }}
       fullWidth
       size="small"
     />

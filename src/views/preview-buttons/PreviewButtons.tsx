@@ -77,7 +77,7 @@ export default function PreviewButtons() {
               size="small"
               checked={threeDimensional}
               onChange={(e) => toggleDimension(e.target.checked)}
-              inputProps={{ "aria-label": "toggle 2D / 3D preview" }}
+              slotProps={{ input: { "aria-label": "toggle 2D / 3D preview" } }}
             />
           }
         />

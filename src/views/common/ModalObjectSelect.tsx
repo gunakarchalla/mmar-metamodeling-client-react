@@ -97,13 +97,15 @@ export default function ModalObjectSelect({
             onChange={(event) => setSearchTerm(event.target.value)}
             fullWidth
             size="small"
-            inputProps={{ maxLength: 256 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
+            slotProps={{
+              htmlInput: { maxLength: 256 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              },
             }}
             sx={{ mb: 1 }}
           />

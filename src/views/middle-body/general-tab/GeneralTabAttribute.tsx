@@ -32,7 +32,7 @@ export default function GeneralTabAttribute() {
   return (
     <FieldsetSection legend="Attribute">
       <Stack spacing={2} sx={{ mt: 1 }}>
-        <Stack direction="row" spacing={2} alignItems="center">
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
           <Typography>Attribute Type:</Typography>
           {attributeType && (
             <ObjectPreviewCard name={attributeType.name} geometry={attributeType.geometry} />

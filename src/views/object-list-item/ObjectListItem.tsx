@@ -65,7 +65,7 @@ export default function ObjectListItem({ object }: { object: MetaObject }) {
           </ListItemIcon>
           <ListItemText
             primary={object.name}
-            primaryTypographyProps={{ noWrap: true, fontSize: 13 }}
+            slotProps={{ primary: { noWrap: true, sx: { fontSize: 13 } } }}
           />
         </ListItemButton>
       </ListItem>

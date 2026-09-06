@@ -41,11 +41,13 @@ const theme = createTheme({
     MuiTooltip: {
       defaultProps: {
         arrow: true,
-        PopperProps: {
-          popperOptions: {
-            modifiers: [
-              { name: "preventOverflow", options: { altAxis: true, padding: 8 } },
-            ],
+        slotProps: {
+          popper: {
+            popperOptions: {
+              modifiers: [
+                { name: "preventOverflow", options: { altAxis: true, padding: 8 } },
+              ],
+            },
           },
         },
       },

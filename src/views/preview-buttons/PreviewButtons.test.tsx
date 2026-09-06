@@ -12,7 +12,7 @@ import { render, screen, cleanup, act, fireEvent } from "@testing-library/react"
 
 /** No jest-dom in this project (see test-setup.ts), so read the DOM directly. */
 const toggle = () =>
-  screen.getByRole("checkbox", { name: "toggle 2D / 3D preview" }) as HTMLInputElement;
+  screen.getByRole("switch", { name: "toggle 2D / 3D preview" }) as HTMLInputElement;
 
 const mocks = vi.hoisted(() => ({
   engine: { setThreeDimensional: vi.fn() },

@@ -75,8 +75,10 @@ export default function GeneralTab() {
         <TextField
           label="UUID"
           value={object.uuid ?? ""}
-          InputProps={{ readOnly: true }}
-          inputProps={{ maxLength: 256 }}
+          slotProps={{
+            input: { readOnly: true },
+            htmlInput: { maxLength: 256 },
+          }}
           fullWidth
           size="small"
         />
