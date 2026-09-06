@@ -19,11 +19,24 @@ import { useGlobalShortcuts } from "./useGlobalShortcuts";
  */
 export default function AppLayout() {
   const currentUser = useAuthStore((s) => s.currentUser);
-  const [loginOpen, setLoginOpen] = useState(false);
+  // Open from the start whenever nobody is signed in. `authStore` rehydrates
+  // itself from the stored token at import time, so this initialiser already
+  // sees a restored session.
+  const [loginOpen, setLoginOpen] = useState(!currentUser);
 
-  useEffect(() => {
-    if (!currentUser) setLoginOpen(true);
-  }, [currentUser]);
+  // ...and open again on every later sign-out. This subscribes to the store
+  // rather than reacting to the rendered `currentUser`, because the store is
+  // the external system the dialog is following: the previous state is what
+  // tells a real sign-out apart from a render that was already signed out, and
+  // an effect that writes state from a store callback is not the cascading
+  // render that `react-hooks/set-state-in-effect` warns about.
+  useEffect(
+    () =>
+      useAuthStore.subscribe((state, previous) => {
+        if (!state.currentUser && previous.currentUser) setLoginOpen(true);
+      }),
+    [],
+  );
 
   useGlobalShortcuts();
 
