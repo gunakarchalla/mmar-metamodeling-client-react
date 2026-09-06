@@ -24,43 +24,61 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Split the heavy vendors out of the app chunk so they cache
         // independently of application code (they change only on dependency
         // bumps, the app changes constantly).
         //
         // `three` and `monaco` are reachable only from the lazy VizRep/Procedure
-        // subtrees (see GeneralTab.tsx), so Rollup would already keep them out of
-        // the entry chunk; naming them here just pins them to stable, separately
-        // cacheable files instead of letting them merge into whichever lazy chunk
-        // pulls them in first.
+        // subtrees (see GeneralTab.tsx), so the bundler would already keep them
+        // out of the entry chunk; naming them here just pins them to stable,
+        // separately cacheable files instead of letting them merge into
+        // whichever lazy chunk pulls them in first.
         //
         // React, emotion and MUI are deliberately kept together in ONE chunk
         // rather than split further: emotion's cache and MUI's styled engine
         // initialise against React at module scope, and separating them into
         // sibling chunks makes the result sensitive to load order.
-        manualChunks(id: string) {
-          // Vite's dynamic-import preload helper is a virtual module (not under
-          // node_modules), so without this it falls through to Rollup's own
-          // grouping — which parks it in whichever chunk it likes. It landed in
-          // `monaco`, and because the entry calls the helper to load its lazy
-          // chunks, the entry then STATICALLY imported all 3.9 MB of Monaco
-          // (Vite even added a modulepreload for it), quietly undoing the split.
-          // Pinning it next to React keeps it in a chunk the entry already needs.
-          if (id.includes("vite/preload-helper")) return "vendor";
-          if (!id.includes("node_modules")) return;
-          if (id.includes("/three/") || id.includes("troika")) return "three";
-          if (id.includes("monaco-editor") || id.includes("@monaco-editor/"))
-            return "monaco";
-          if (
-            id.includes("/react/") ||
-            id.includes("/react-dom/") ||
-            id.includes("/scheduler/") ||
-            id.includes("@emotion/") ||
-            id.includes("@mui/")
-          )
-            return "vendor";
+        //
+        // P7 NOTE — this used to be `rollupOptions.output.manualChunks`. Vite 8
+        // bundles with rolldown, which accepts that callback only through a
+        // compatibility shim that it does NOT treat as authoritative: it still
+        // re-homed `react`'s CommonJS module and the `\0vite/preload-helper.js`
+        // virtual module into `monaco`, even though the callback returned
+        // "vendor" for both. The entry then STATICALLY imported the 3.9 MB
+        // monaco chunk (and index.html modulepreloaded it), which is the exact
+        // regression the old comment here described. `codeSplitting.groups` is
+        // rolldown's own API and IS authoritative, so the pins hold. Verified by
+        // building both ways in the same tree: on vite 5 the entry preloaded
+        // only `vendor`; on vite 8 with manualChunks it preloaded monaco too.
+        codeSplitting: {
+          groups: [
+            {
+              name: "three",
+              test: /[\\/]node_modules[\\/](three|troika-[^\\/]+)[\\/]/,
+              priority: 30,
+              minSize: 0,
+            },
+            {
+              name: "monaco",
+              test: /[\\/]node_modules[\\/](monaco-editor|@monaco-editor)[\\/]/,
+              priority: 20,
+              minSize: 0,
+            },
+            {
+              // Highest priority so react/emotion/MUI win over the two groups
+              // above if anything ever matches both, and so the preload helper
+              // lands here rather than in whichever chunk first calls it.
+              name: "vendor",
+              test: (id: string) =>
+                /[\\/]node_modules[\\/](react|react-dom|scheduler|@emotion|@mui)[\\/]/.test(
+                  id,
+                ) || id.includes("vite/preload-helper"),
+              priority: 40,
+              minSize: 0,
+            },
+          ],
         },
       },
     },
