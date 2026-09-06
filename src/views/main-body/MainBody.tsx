@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 import { Box, Icon, Typography, CircularProgress } from "@mui/material";
 import { styled } from "@mui/material/styles";
-import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
+import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { backendService } from "@/resources/services/backend-service";
 import LogWindow from "@/views/log-window/LogWindow";
 import LeftNav from "@/views/left-nav/LeftNav";
 import MiddleBody from "@/views/middle-body/MiddleBody";
 
 /** The draggable divider between two panels; highlights on hover and drag. */
-const ResizeHandle = styled(PanelResizeHandle)(({ theme }) => ({
+const ResizeHandle = styled(Separator)(({ theme }) => ({
   width: 5,
   flex: "0 0 auto",
   backgroundColor: theme.palette.divider,
   cursor: "col-resize",
   transition: theme.transitions.create("background-color"),
-  '&:hover, &[data-resize-handle-state="drag"]': {
+  "&:hover, &:active": {
     backgroundColor: theme.palette.primary.main,
   },
 }));
@@ -26,6 +26,13 @@ const ResizeHandle = styled(PanelResizeHandle)(({ theme }) => ({
  */
 export default function MainBody() {
   const [isConnected, setIsConnected] = useState<boolean | undefined>(undefined);
+
+  // Remembers the column widths across reloads. v4 removed `autoSaveId`; this hook
+  // is its replacement and still persists to localStorage under the same id. It is
+  // called above the early returns below so the hook order never changes.
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "mmar-metamodeling-layout",
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -77,18 +84,20 @@ export default function MainBody() {
   }
 
   return (
-    <PanelGroup
-      direction="horizontal"
-      autoSaveId="mmar-metamodeling-layout"
+    <Group
+      orientation="horizontal"
+      defaultLayout={defaultLayout}
+      onLayoutChanged={onLayoutChanged}
       style={{ flex: 1, minHeight: 0 }}
     >
       {/* `overscrollBehavior: contain` stops a fast flick that reaches the end
           of a panel from chaining its leftover scroll into the document, which
           the shell deliberately cannot scroll. Set on all three panels. */}
       <Panel
-        defaultSize={18}
-        minSize={0}
-        maxSize={35}
+        id="left-nav"
+        defaultSize="18"
+        minSize="0"
+        maxSize="35"
         style={{ overflowY: "auto", overscrollBehavior: "contain" }}
       >
         <LeftNav />
@@ -96,7 +105,7 @@ export default function MainBody() {
 
       <ResizeHandle />
 
-      <Panel minSize={30}>
+      <Panel id="middle-body" minSize="30">
         <Box
           className="middle-body"
           sx={{
@@ -112,9 +121,9 @@ export default function MainBody() {
 
       <ResizeHandle />
 
-      <Panel defaultSize={20} minSize={0} maxSize={40}>
+      <Panel id="log-window" defaultSize="20" minSize="0" maxSize="40">
         <LogWindow />
       </Panel>
-    </PanelGroup>
+    </Group>
   );
 }
