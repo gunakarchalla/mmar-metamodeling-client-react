@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, type JSX } from "react";
 import { TextField, Box, Stack, CircularProgress } from "@mui/material";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { BoundText, CoordFieldset } from "./fields";

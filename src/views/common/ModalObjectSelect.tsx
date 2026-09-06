@@ -20,6 +20,7 @@ import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { vizRepIcon } from "@/resources/services/vizrep-icon";
+import IconCell from "./IconCell";
 import { candidatesFor, showsTypeColumn } from "./child-candidates";
 import { useObjectTable } from "./object-table";
 import SortableHeaderCell from "./SortableHeaderCell";
@@ -141,12 +142,10 @@ export default function ModalObjectSelect({
                     onClick={() => togglePicked(item.uuid)}
                   >
                     <TableCell>
-                      <img
-                        alt={`image of ${item.name}`}
-                        className="image-list"
-                        style={{ width: 32, height: 32, objectFit: "contain" }}
-                        src={vizRepIcon(item.geometry?.toString() ?? "")}
-                      />
+                      {/* An empty icon means "no image", not src="" — see ObjectListItem.
+                          The empty span holds the column's 32px width so the table does
+                          not reflow around a row whose VizRep carries no inline image. */}
+                      <IconCell src={vizRepIcon(item.geometry?.toString() ?? "")} name={item.name} />
                     </TableCell>
                     {showType && <TableCell>{getTypeFromUuid(item.uuid)}</TableCell>}
                     <TableCell>{item.name}</TableCell>

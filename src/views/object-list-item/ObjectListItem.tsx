@@ -55,13 +55,19 @@ export default function ObjectListItem({ object }: { object: MetaObject }) {
             "&.Mui-disabled": { opacity: 1 },
           }}
         >
+          {/* `vizRepIcon` returns "" for a VizRep with no usable inline image, and an
+              <img src=""> makes the browser re-request the current page (React 19 warns
+              about it). The row keeps its indent either way: ListItemIcon's minWidth
+              reserves the space whether or not an icon renders. */}
           <ListItemIcon sx={{ minWidth: 30 }}>
-            <Box
-              component="img"
-              src={iconSrc}
-              alt={object.name}
-              sx={{ width: 22, height: 22, objectFit: "contain" }}
-            />
+            {iconSrc && (
+              <Box
+                component="img"
+                src={iconSrc}
+                alt={object.name}
+                sx={{ width: 22, height: 22, objectFit: "contain" }}
+              />
+            )}
           </ListItemIcon>
           <ListItemText
             primary={object.name}

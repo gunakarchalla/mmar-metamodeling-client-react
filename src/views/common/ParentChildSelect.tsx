@@ -26,6 +26,7 @@ import { ColumnStructure } from "@gds/models/meta/Metamodel_columns.structure";
 import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { useLogStore } from "@/resources/store/logStore";
 import { vizRepIcon } from "@/resources/services/vizrep-icon";
+import IconCell from "./IconCell";
 import { textify } from "@/resources/util/textify";
 import { ObjectRow, useObjectTable } from "./object-table";
 import SortableHeaderCell from "./SortableHeaderCell";
@@ -352,12 +353,10 @@ export default function ParentChildSelect({
                   </TableCell>
                 )}
                 <TableCell>
-                  <img
-                    alt={`image of ${item.name}`}
-                    className="image-list"
-                    style={{ width: 32, height: 32, objectFit: "contain" }}
-                    src={vizRepIcon(item.geometry?.toString() ?? "")}
-                  />
+                  {/* An empty icon means "no image", not src="" — see ObjectListItem.
+                      The empty span holds the column's 32px width so the table does not
+                      reflow around a row whose VizRep carries no inline image. */}
+                  <IconCell src={vizRepIcon(item.geometry?.toString() ?? "")} name={item.name} />
                 </TableCell>
                 {showType && <TableCell>{getTypeFromUuid(item.uuid)}</TableCell>}
                 <TableCell>{item.name}</TableCell>
