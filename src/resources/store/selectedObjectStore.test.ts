@@ -22,6 +22,53 @@ describe("selectedObjectStore.getTypeFromUuid round-trip", () => {
   });
 });
 
+/**
+ * `getTypeFromUuid` answers from a uuid → type index rather than by scanning
+ * every collection, and that index is invalidated by comparing collection array
+ * *identities*. That is sound only because every write replaces its collection
+ * wholesale — so these cover each write path that has to invalidate it. A stale
+ * index is not a slow answer, it is a wrong one.
+ */
+describe("selectedObjectStore.getTypeFromUuid stays in step with the collections", () => {
+  const store = () => useSelectedObjectStore.getState();
+  beforeEach(reset);
+
+  it("sees objects added after the first lookup", () => {
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "One" }) as SceneType], "SceneType");
+    expect(store().getTypeFromUuid("st-1")).toBe("SceneType");
+
+    // The first lookup has now built and cached an index that knows nothing of this.
+    store().addObject([new Class("cl-1", "A", "" as never, null as never)], "Class");
+    expect(store().getTypeFromUuid("cl-1")).toBe("Class");
+    expect(store().getTypeFromUuid("st-1")).toBe("SceneType");
+  });
+
+  it("forgets an object that was removed", () => {
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "One" }) as SceneType], "SceneType");
+    expect(store().getTypeFromUuid("st-1")).toBe("SceneType");
+
+    store().removeObject("st-1");
+    expect(store().getTypeFromUuid("st-1")).toBeNull();
+  });
+
+  it("forgets everything after a full reset", () => {
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "One" }) as SceneType], "SceneType");
+    expect(store().getTypeFromUuid("st-1")).toBe("SceneType");
+
+    reset();
+    expect(store().getTypeFromUuid("st-1")).toBeNull();
+  });
+
+  it("follows a collection that was replaced wholesale", () => {
+    store().setObjects([SceneType.fromJS({ uuid: "st-1", name: "One" }) as SceneType], "SceneType");
+    expect(store().getTypeFromUuid("st-1")).toBe("SceneType");
+
+    store().setObjects([SceneType.fromJS({ uuid: "st-2", name: "Two" }) as SceneType], "SceneType");
+    expect(store().getTypeFromUuid("st-1")).toBeNull();
+    expect(store().getTypeFromUuid("st-2")).toBe("SceneType");
+  });
+});
+
 describe("selectedObjectStore open tabs", () => {
   const store = () => useSelectedObjectStore.getState();
 

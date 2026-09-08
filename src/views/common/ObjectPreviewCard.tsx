@@ -1,5 +1,5 @@
 import { Box, Card, CardContent, Tooltip } from "@mui/material";
-import { vizRepIcon } from "@/resources/services/vizrep-icon";
+import { vizRepIconOf } from "@/resources/services/vizrep-icon";
 
 /**
  * The small card that stands for a single referenced object: its VizRep icon
@@ -15,7 +15,7 @@ export default function ObjectPreviewCard({
   /** The referenced object's VizRep source, which the icon is taken from. */
   geometry: unknown;
 }) {
-  const image = vizRepIcon(geometry?.toString() ?? "");
+  const image = vizRepIconOf(geometry);
 
   return (
     <Tooltip title={name ?? ""} arrow>

@@ -34,15 +34,19 @@ export default function MainBody() {
     id: "mmar-metamodeling-layout",
   });
 
+  // The reachability check starts immediately. It used to sit behind a one-second
+  // `setTimeout`, which every page load spent on the "Connecting to the backend…"
+  // spinner before the first request was even sent — and there was nothing to
+  // wait for: `authStore` restores the stored session synchronously at import
+  // time, so the token `ping` needs is in place before this component mounts.
   useEffect(() => {
     let cancelled = false;
-    const timer = setTimeout(async () => {
+    void (async () => {
       const ok = await backendService.ping();
       if (!cancelled) setIsConnected(!!ok);
-    }, 1000);
+    })();
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
   }, []);
 

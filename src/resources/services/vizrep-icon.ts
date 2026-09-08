@@ -53,3 +53,51 @@ export function vizRepIcon(geometry: string): string {
   }
   return map;
 }
+
+/**
+ * The cached form, and the one every list and table should call.
+ *
+ * The parse above is not cheap — it splits a source string that routinely embeds
+ * a multi-kilobyte base64 texture, three times — and `geometry` is typed as a
+ * `Function` by the shared data structures, so each caller also allocated a
+ * fresh copy of that whole string via `toString()` just to hand it over. Rows
+ * re-render far more often than their VizRep changes (any commit republishes the
+ * store), so both costs were being paid over and over for an answer that had not
+ * moved.
+ *
+ * Keying on the geometry value's *identity* rather than on its text is what
+ * makes that safe and cheap: a VizRep the user edits arrives as a new value and
+ * misses the cache, so the icon still tracks the source.
+ */
+const byIdentity = new WeakMap<object, string>();
+const byText = new Map<string, string>();
+
+/** Bounds `byText`, which cannot evict on its own the way a WeakMap does. */
+const MAX_TEXT_ENTRIES = 500;
+
+export function vizRepIconOf(geometry: unknown): string {
+  if (geometry === null || geometry === undefined) return PLACEHOLDER_ICON;
+
+  // The common case: gds hands over a Function (or an object wrapping one), so
+  // the entry is collected with the object and needs no bookkeeping.
+  if (typeof geometry === "object" || typeof geometry === "function") {
+    const key = geometry as object;
+    const hit = byIdentity.get(key);
+    if (hit !== undefined) return hit;
+    const icon = vizRepIcon(String(geometry));
+    byIdentity.set(key, icon);
+    return icon;
+  }
+
+  const text = String(geometry);
+  const hit = byText.get(text);
+  if (hit !== undefined) return hit;
+  const icon = vizRepIcon(text);
+  // Plain FIFO eviction: this only exists to stop a long session accumulating
+  // every VizRep ever displayed, and the working set is one screen of rows.
+  if (byText.size >= MAX_TEXT_ENTRIES) {
+    byText.delete(byText.keys().next().value as string);
+  }
+  byText.set(text, icon);
+  return icon;
+}

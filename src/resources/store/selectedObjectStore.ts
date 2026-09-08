@@ -262,6 +262,47 @@ const collectionOf = (s: SelectedObjectState, key: MetaCollectionKey): MetaObjec
 const collectionUpdate = (key: MetaCollectionKey, objects: MetaObject[]) =>
   ({ [key]: objects }) as unknown as Partial<SelectedObjectState>;
 
+/**
+ * uuid → type name, rebuilt only when a collection is actually replaced.
+ *
+ * `getTypeFromUuid` used to answer by scanning all eleven collections for the
+ * uuid. That is fine once, but the object tables call it *per rendered row* (the
+ * Type column) and again inside the sort comparator, so a table of n rows cost
+ * O(n log n) full sweeps of the entire loaded metamodel to draw once. Every
+ * collection is replaced wholesale rather than mutated — `setObjects`,
+ * `addObject`, `removeObject`, `updateLocalObject` all `set` a new array — so
+ * comparing the eleven array identities is a sound and cheap way to know the
+ * index is still valid.
+ */
+let typeIndex: Map<UUID, MetaTypeName> | null = null;
+let typeIndexSources: readonly MetaObject[][] = [];
+
+const typeIndexOf = (s: SelectedObjectState): Map<UUID, MetaTypeName> => {
+  const sources = META_TYPE_NAMES.map((name) =>
+    collectionOf(s, META_TYPES[name].collection),
+  );
+  if (
+    typeIndex !== null &&
+    sources.length === typeIndexSources.length &&
+    sources.every((collection, i) => collection === typeIndexSources[i])
+  ) {
+    return typeIndex;
+  }
+
+  const index = new Map<UUID, MetaTypeName>();
+  // Built in META_TYPE_NAMES order and keeping the first hit, which is the same
+  // answer the `find`-over-`some` scan it replaces gave for a uuid that somehow
+  // appears in two collections.
+  META_TYPE_NAMES.forEach((name, i) => {
+    for (const item of sources[i]) {
+      if (!index.has(item.uuid)) index.set(item.uuid, name);
+    }
+  });
+  typeIndex = index;
+  typeIndexSources = sources;
+  return index;
+};
+
 export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => {
   // -------------------------------------------------------------------------
   // Committing an edit
@@ -820,9 +861,7 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
     },
 
     getTypeFromUuid: (uuid) => {
-      const match = META_TYPE_NAMES.find((name) =>
-        collectionOf(get(), META_TYPES[name].collection).some((item) => item.uuid === uuid),
-      );
+      const match = typeIndexOf(get()).get(uuid);
       if (!match) console.warn(`Unknown type for uuid: ${uuid}`);
       return match ?? null;
     },

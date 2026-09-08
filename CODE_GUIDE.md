@@ -152,8 +152,11 @@ learner:
 
 ### The body — [src/views/main-body/MainBody.tsx](src/views/main-body/MainBody.tsx)
 
-- On mount it **pings the server** after a 1s delay (`useEffect`) and stores the
-  result in `isConnected` local state. While `undefined` it shows a spinner;
+- On mount it **pings the server** immediately (`useEffect`) and stores the
+  result in `isConnected` local state. (This used to sit behind a 1s
+  `setTimeout`, which every page load spent on the "Connecting to the backend…"
+  spinner before the first request went out. There was nothing to wait for:
+  `authStore` restores the stored session synchronously at import time.) While `undefined` it shows a spinner;
   `false` shows "no connection"; `true` shows the real UI. This is the classic
   three-state async pattern.
 - The real UI is three resizable columns (via `react-resizable-panels`):
@@ -465,6 +468,12 @@ Admin-only sections (Users, Usergroups) are filtered out unless you are admin.
 Each section is an MUI `Accordion` that shows a progress bar while loading, then
 an `ObjectList`.
 
+**A collapsed section renders nothing** — `slotProps={{ transition: { unmountOnExit:
+true } }}`. MUI's `Collapse` keeps its children mounted by default, so without this
+every section's full list is live in the tree, and re-rendering with it, from the
+moment the data lands: ten types' worth of rows behind nine closed accordions.
+Keep it.
+
 ### [ObjectList.tsx](src/views/object-list/ObjectList.tsx) → [ObjectListItem.tsx](src/views/object-list-item/ObjectListItem.tsx)
 
 `ObjectList` reads its slice of the store *by type* (`getObjects("Class")`
@@ -475,9 +484,32 @@ recomputes when the list or the search term changes. "Remove selected" is enable
 only when the selection belongs to *this* section (`selectedObject` is global, so
 without that check every section's button would light up at once).
 
+**Every selector in this component returns a stable value** — the collection array
+itself, a uuid string, a type string, a boolean — and that is deliberate. This is
+the component with one child per object, so a selector returning a fresh value on
+each store write re-renders the entire list on every keystroke in the General tab.
+Subscribing to `s.selectedObject` did exactly that (`commit()` republishes the
+working copy under a new identity on every edit); it now subscribes to
+`s.selectedObject?.uuid`, which is all it needs. The `?? EMPTY` fallback is a
+module constant for the same reason. See [Performance](#performance-the-rules-that-keep-it-fast).
+
+**The rows live in the section's own bounded scroll box, and above 60 of them
+only the visible ones are mounted** (`useRowWindow`, with `li` spacers carrying
+the height of the rest so the scrollbar stays true). The two go together: the
+bounded box is what makes the windowing tractable, because the visible range
+falls out of one element's `scrollTop` against a known height instead of having
+to locate the list inside a scroll container shared with nine other sections.
+Below the threshold a section renders whole, so the common case is exactly what
+it always was. Row height is *measured* from a real row rather than assumed, with
+the estimate as a fallback for environments that do not lay out (jsdom). Note
+that the spacers size themselves with an inline `style`, not `sx` — that value
+changes on every scroll step, and emotion would mint a CSS class per frame.
+
 `ObjectListItem` is a clickable row — a small icon (the object's own VizRep
-icon, via `vizRepIcon`) followed by its name on one dense line, with the
-description in a tooltip. Clicking it (`onButtonClicked`) **opens the object in a
+icon, via `vizRepIconOf`) followed by its name on one dense line, with the
+description in a tooltip. It is wrapped in **`memo`**, and its constant `sx`
+objects are hoisted to module scope; both matter because a section can hold
+hundreds of these. Clicking it (`onButtonClicked`) **opens the object in a
 tab, or focuses the tab it is already open in**. The original also saved the
 outgoing selection first; that was removed when tabs landed, because auto-saving
 on every click makes an unsaved tab impossible to observe — the dirty marker
@@ -780,6 +812,89 @@ next to Preview — the one control row this feature owns.
 
 ---
 
+## Performance: the rules that keep it fast
+
+This app makes a metamodel of a few hundred objects feel instant, and it does so
+by *not rendering* rather than by rendering fast. Four rules carry that, and each
+one was worth a measurable amount. The numbers below are jsdom timings for a
+single left-nav section — a real browser is faster, but the shape is what
+matters.
+
+**1. A store selector must return a stable value.** This is the big one. The
+store republishes `selectedObject` under a new identity on *every* commit, which
+means every keystroke in the General tab. Any component subscribing to
+`s.selectedObject` therefore re-renders on every keystroke — and if that
+component renders one child per object, so does the whole list:
+
+| Objects in one section | Cost of one keystroke, before | after |
+|---:|---:|---:|
+| 50 | 76 ms | 0.3 ms |
+| 200 | 154 ms | 0.2 ms |
+| 500 | 408 ms | 0.2 ms |
+
+The fix was not to make the render cheaper but to stop subscribing to something
+that changes: `ObjectList` reads `s.selectedObject?.uuid`, which is all it wants.
+Note the shape of the "after" column — flat. **If a cost grows with the number of
+loaded objects, something is subscribed too broadly.** The same rule bans `?? []`
+and other fresh-value fallbacks inside a selector; use a module constant.
+
+**2. Anything rendered once per object is wrapped in `memo`.** `ObjectListItem`
+and the log window's `LogRow`. Their props are objects that are replaced rather
+than mutated, so the default shallow comparison is correct. Hoist constant `sx`
+objects to module scope while you are there — an `sx` literal is a new value on
+every render, which defeats emotion's own cache.
+
+**3. Off-screen means unmounted.** The left nav's accordions pass
+`slotProps={{ transition: { unmountOnExit: true } }}`; MUI's `Collapse` otherwise
+keeps every collapsed section's list live in the tree. Lazy chunks
+([GeneralTab](#the-general-tab--general-tabtsx--fieldstsx)) are the same idea
+applied to the bundle.
+
+**4. Repeated work gets an index or a cache, keyed on identity.**
+- `getTypeFromUuid` answers from a `Map` rebuilt only when a collection array is
+  actually replaced. It used to scan all eleven collections per call, and the
+  object tables call it once per rendered row *and* inside the sort comparator.
+- `vizRepIconOf` caches the VizRep scrape on the geometry value's identity
+  (`WeakMap`), which also avoids re-`toString()`-ing a source that routinely
+  embeds a multi-kilobyte base64 texture.
+- `logStore` caps `logArray` at 200 entries and gives each an `id`. Entries are
+  *prepended*, so keying rows by array index made every key shift on each new
+  line and re-rendered the entire log.
+
+Both caches are invalidated by identity, never by content — which is sound here
+precisely because collections are replaced wholesale (`setObjects`, `addObject`,
+`removeObject`, `updateLocalObject` all `set` a new array) and edited objects are
+`reref`'d. That is the same property [the `reref` trick](#1-selectedobjectstore--the-big-one)
+relies on, used for a second purpose.
+
+**5. Above 60 rows, a left-nav section mounts only what is on screen.** Each
+section scrolls in a bounded box of its own and windows its rows
+([ObjectList](#objectlisttsx--objectlistitemtsx)). Expanding a section used to
+cost about a second for 500 objects — roughly half of it MUI's per-row `Tooltip`,
+which is not something you can make cheap, only something you can avoid paying
+500 times:
+
+| Rows in the section | Cost to expand, before | after |
+|---:|---:|---:|
+| 50 | 357 ms | 151 ms |
+| 200 | 510 ms | 91 ms |
+| 500 | 1107 ms | 65 ms |
+
+Flat again, and for the same reason: the work is now proportional to the viewport
+rather than to the data.
+
+**What is deliberately *not* optimised.** A keystroke in the General tab
+re-renders its twelve controlled MUI inputs, ~17 ms in jsdom. That is inherent to
+controlled inputs and flat in the size of the metamodel, so it is left alone.
+
+**How to check.** There is no committed benchmark. Render the component under
+`@testing-library/react` with a few hundred objects in the store, drive
+`updateSelectedField` in a loop inside `act()`, and time it — the table above was
+produced that way. React DevTools' Profiler ("why did this render") is the other
+half.
+
+---
+
 ## Gotchas
 
 - **The document itself must never scroll — `html, body { overflow: hidden }` in
@@ -821,7 +936,10 @@ next to Preview — the one control row this feature owns.
   geometry source on `let icon` / `let map` and fishes out the first `data:` base64
   literal, falling back to a hard-coded placeholder PNG. That is why every card can
   show a thumbnail without running any VizRep code — and why renaming that variable
-  in a geometry snippet silently changes the icon.
+  in a geometry snippet silently changes the icon. **Call `vizRepIconOf(geometry)`,
+  not `vizRepIcon`, from anything that renders**: it caches on the geometry value's
+  identity, which also skips the `toString()` copy of a source that routinely embeds
+  a multi-kilobyte base64 texture. `vizRepIcon` remains the pure function underneath.
 - **`instanceof` against store objects always fails** — they are plain JSON. Branch on
   `type`. ([Details](#type-dispatch-type-never-instanceof).)
 - **The left-nav list lags the General tab by design** — `selectedObject` is a working

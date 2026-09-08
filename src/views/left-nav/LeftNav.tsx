@@ -93,7 +93,18 @@ export default function LeftNav() {
   return (
     <>
       {LISTED_META_TYPES.filter((type) => !META_TYPES[type].adminOnly || isAdmin).map((type) => (
-        <Accordion key={type} disableGutters>
+        <Accordion
+          key={type}
+          disableGutters
+          // A collapsed section renders nothing at all. MUI's Collapse keeps its
+          // children mounted by default, so every section's full list — one row
+          // component per object, across all ten types — was live in the tree
+          // from the moment the data landed, and re-rendered with it, even
+          // though nine of them were folded shut and invisible. Unmounting on
+          // exit makes the cost of the left navigation proportional to what the
+          // user has actually opened.
+          slotProps={{ transition: { unmountOnExit: true } }}
+        >
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Typography>{META_TYPES[type].label}</Typography>
           </AccordionSummary>

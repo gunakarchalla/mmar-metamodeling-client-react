@@ -1,26 +1,27 @@
 import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
-import { SceneInstance } from "@gds";
 import { globalObject } from "@/engine/global-definition";
-import { instanceUtility } from "@/resources/services/instance-utility";
 
 /**
- * Port of the old `animator.ts`. DI stripped (P3 recipe): GlobalDefinition +
- * InstanceUtility become module-singleton imports (the unused RayHelper dep is
- * dropped). Bodies unchanged.
+ * Port of the old `animator.ts`. DI stripped (P3 recipe): GlobalDefinition
+ * becomes a module-singleton import (the unused RayHelper dep is dropped, and
+ * the InstanceUtility one went with the dead per-frame lookup below).
  */
 export class Animator {
   private globalObjectInstance = globalObject;
-  private instanceUtility = instanceUtility;
 
-  async animate() {
-    // get tabcontext sceneInstance
-    let tabContextSceneInstance: SceneInstance | undefined;
-
-    if (this.globalObjectInstance.tabContext.length > 0) {
-      tabContextSceneInstance = await this.instanceUtility.getTabContextSceneInstance();
-    }
-
+  /**
+   * The per-frame tick, driven by `renderer.setAnimationLoop`.
+   *
+   * Kept synchronous on purpose. It used to `await` the tab context's scene
+   * instance on every frame — roughly sixty times a second — and then never read
+   * the result: the value was assigned to a local and dropped. Each of those
+   * awaits also cost a promise and a microtask turn on the frame budget, and
+   * `getTabContextSceneInstance` writes a log line when it finds nothing, so on
+   * any frame without a loaded scene the render loop was also driving the log
+   * store (and every component subscribed to it) at frame rate.
+   */
+  animate() {
     if (this.globalObjectInstance.render) {
       this.globalObjectInstance.render = false;
       this.globalObjectInstance.renderer.render(this.globalObjectInstance.scene, this.globalObjectInstance.camera);
