@@ -357,6 +357,9 @@ load. The last line (`useAuthStore.getState().setCurrentUser()`) runs once at
 import time to restore your session from a stored token on page load — the
 equivalent of the original `UserService` constructor.
 
+`login()` and `logout()` also publish on the bus's `login` channel (`true` /
+`false`). That publish is what drives the [session teardown](#session-teardown-signing-out).
+
 ### 3. uiStore — the refresh signal
 
 The smallest store, but conceptually neat. The old app published a `"refresh"`
@@ -409,6 +412,7 @@ against the original.
 | [helper-service.ts](src/resources/services/helper-service.ts) | `dataUrlToFile` / `fileToBase64` |
 | [auth-token.ts](src/resources/services/auth-token.ts) | bearer-token storage + the `Authorization` header |
 | [vizrep-icon.ts](src/resources/services/vizrep-icon.ts) | scrapes a list icon out of a VizRep — see [gotchas](#gotchas) |
+| [session-reset.ts](src/resources/services/session-reset.ts) | empties the stores on sign-out — see [session teardown](#session-teardown-signing-out) |
 
 Plus three small helpers in [src/resources/util/](src/resources/util/):
 `textify.ts` (port of the Aurelia value converter), `describe-error.ts`
@@ -451,6 +455,58 @@ straight into the store. The asymmetry is declared in one place, the
 `RESPONSE_QUIRKS` table at the top of the service. So most objects in `selectedObjectStore` are plain
 objects whose prototype is `Object.prototype`. Do not write `instanceof` against
 them — see [below](#type-dispatch-type-never-instanceof).
+
+---
+
+## Session teardown: signing out
+
+Signing out has to destroy the session, not just the token. Everything the
+session built lives in module singletons that last as long as the **page**, not
+as long as the sign-in, and `AppLayout` only stops *rendering* the body while
+nobody is signed in — it destroys none of it. Left alone, the next sign-in
+re-rendered the body over the previous user's session: their whole loaded
+metamodel (the admin-only user and usergroup lists included), their editor tabs
+with unsaved edits and undo history, their VizRep source in the code editor,
+their log panel, and the meshes and cached files behind the 3D preview.
+
+`authStore.logout()` publishes `login: false`, and **two** modules subscribe:
+
+| Module | Resets | Loaded |
+|---|---|---|
+| [session-reset.ts](src/resources/services/session-reset.ts) | `selectedObjectStore`, `editorStore`, `logStore` | eagerly, by [main.tsx](src/main.tsx) |
+| [engine-reset.ts](src/resources/services/engine-reset.ts) | the engine singletons + the file cache | with the engine chunk, by [engine/index.ts](src/engine/index.ts) |
+
+Both are **side-effect imports**: importing the module is what arms its
+subscription, and nothing references the import. Dropping either import
+silently disables that half.
+
+They are two modules rather than one because the engine is behind the lazily
+imported [VizRep editor](#the-vizrep-geometry-editor) chunk and builds a
+`WebGLRenderer` at module scope. Reaching it from the eager half would cost
+every visitor a three.js download and a WebGL context on the sign-in screen —
+and a session that never opened the VizRep editor has no engine state to reset
+in the first place. The engine half lives under `resources/services/` with the
+other engine-facing services rather than in `src/engine/`, which is otherwise
+[kept byte-identical](README.md) with `mmar-vizrep-client-react` — a client with
+no sessions to tear down. For the same reason `editorStore` and `logStore` are
+emptied from `session-reset` with `setState` instead of gaining a `reset()`
+action of their own.
+
+Two rules if you extend either half:
+
+- **Do not clear what `initiator.init()` built.** `init` is memoised and never
+  runs again, so the mock scene type, class and class instance, the cameras, the
+  controls, the plane and the renderer must survive. Emptying
+  `globalObject.sceneTypes` breaks the preview permanently — `runPreview` then
+  bails out with "Engine not ready for preview".
+- **Rebuild the scene with `sceneInitiator.sceneInit()`**, never a bare
+  `new THREE.Scene()`: the scene owns the transform controls, the lights, the
+  grid, the 3D mouse pointer and the intersection plane, and nothing else
+  rebuilds them.
+
+`uiStore` is deliberately *not* reset: its only state is the refresh signal, and
+`LeftNav` unmounts with the body and does a full reload on mount regardless of
+it.
 
 ---
 
@@ -975,7 +1031,7 @@ falls back to `.env`'s `http://mmar-server:8000` (the in-container hostname).
 
 ## Tests
 
-`npm run test` → **168 tests across 18 files**, all green. Vitest defaults to the
+`npm run test` → **219 tests across 26 files**, all green. Vitest defaults to the
 `node` environment; the component suites opt into jsdom per-file with a
 `// @vitest-environment jsdom` docblock — cheaper than a global switch, and it keeps
 the blast radius small. [src/test-setup.ts](src/test-setup.ts) imports
@@ -1005,6 +1061,14 @@ those chords is pinned in
 [CodeEditor.test.tsx](src/views/code-editor/CodeEditor.test.tsx), and the
 Ctrl-vs-⌘ split in [platform.test.ts](src/resources/util/platform.test.ts) plus a
 macOS block in the AppLayout suite.
+
+The [session teardown](#session-teardown-signing-out) has one suite per half —
+[session-reset.test.ts](src/resources/services/session-reset.test.ts) and
+[engine-reset.test.ts](src/resources/services/engine-reset.test.ts) — plus
+[TopNavBar.test.tsx](src/views/top-nav-bar/TopNavBar.test.tsx) for the Sign Out
+button's unsaved-changes guard. The engine suite is the one to read before
+touching that half: it pins the scaffolding that must *survive* a teardown as
+carefully as the state that must go.
 
 ---
 

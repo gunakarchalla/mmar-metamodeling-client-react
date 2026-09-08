@@ -4,6 +4,12 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import App from "./App";
+// Load-bearing side-effect import: this module subscribes to the `login` channel
+// and empties the stores on sign-out, so the next user cannot inherit the
+// previous one's metamodel, editor tabs or log. It is imported for that
+// subscription alone — nothing here references it, and dropping the import
+// silently disables the teardown.
+import "@/resources/services/session-reset";
 
 /**
  * The application theme: the MMAR palette, plus the handful of component

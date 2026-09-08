@@ -36,6 +36,17 @@ import { lineUpdateService } from "@/engine/line-update-service";
 import { vizrepUpdateChecker } from "@/engine/vizrep-update-checker";
 import { sceneInitiator } from "@/engine/scene-initiator";
 import { initiator } from "@/engine/initiator";
+// Load-bearing side-effect import, and last because the module reaches into most
+// of the above: it subscribes to the `login` channel and tears the engine's
+// session state down on sign-out. Nothing here references it, and dropping the
+// import silently disables that teardown.
+//
+// It lives under `resources/services/` — with the other engine-facing services —
+// rather than in this folder, because everything here except this file is kept
+// byte-identical with `mmar-vizrep-client-react`, which has no sessions to tear
+// down. See the module for why the store half cannot do this job from outside
+// the engine chunk.
+import "@/resources/services/engine-reset";
 
 export {
   globalObject,

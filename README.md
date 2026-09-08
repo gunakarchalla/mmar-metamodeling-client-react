@@ -28,8 +28,13 @@ with the loaded collections when the tab is saved.
   - `authStore` — sign in/out, backed by the bearer token in local storage.
   - `logStore` — the log list plus the error snackbar.
   - `uiStore` — the refresh signal the left navigation listens on.
+
+  Signing out tears the session out of every one of these but `uiStore` — see
+  [CODE_GUIDE.md](CODE_GUIDE.md#session-teardown-signing-out).
 - **`src/resources/services/`** — the backend service and the framework-agnostic
-  helpers built on it (file caching, metamodel lookups, VizRep icon extraction).
+  helpers built on it (file caching, metamodel lookups, VizRep icon extraction),
+  plus the two halves of the sign-out teardown, `session-reset.ts` (the stores)
+  and `engine-reset.ts` (the 3D engine).
 - **`src/views/`** — the UI, one folder per region: `layout/`, `top-nav-bar/`,
   `toolbar/`, `left-nav/`, `object-list/`, `object-tabs/`, `middle-body/` (the
   General tab and the structural tabs), `code-editor/`, `three-canvas/`,

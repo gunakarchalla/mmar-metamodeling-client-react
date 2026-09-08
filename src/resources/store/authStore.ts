@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { jwtDecode } from "jwt-decode";
 import { apiFetch, errorMessageOf } from "@/resources/services/api";
 import { clearAuthToken, readAuthToken, writeAuthToken } from "@/resources/services/auth-token";
+import { eventBus } from "@/resources/services/event-bus";
 import { useLogStore } from "./logStore";
 
 /**
@@ -30,6 +31,11 @@ const decodeToken = (token: string): TokenClaims => jwtDecode<TokenClaims>(token
 interface AuthState {
   currentUser: CurrentUser | null;
   login: (username: string, password: string) => Promise<boolean>;
+  /**
+   * Drop the token and the current user, and publish `login` as false — which is
+   * what the session teardown (`services/session-reset` and its engine half,
+   * `services/engine-reset`) hangs off.
+   */
   logout: () => Promise<void>;
   /**
    * Change one's own password, proving identity with the current one.
@@ -66,6 +72,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       writeAuthToken(await response.json());
       set({ currentUser: { username, isAdmin: get().isAdmin() } });
       useLogStore.getState().log(`User ${username} logged in`, "info");
+      // Announce the new session. Nothing rebuilds itself off this — `LeftNav`
+      // reloads from the server when the body mounts for the new `currentUser` —
+      // so it is the sign-out publish below that carries the weight.
+      eventBus.publish("login", true);
       return true;
     } catch (error) {
       console.error("There was an error logging in:", error);
@@ -82,6 +92,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       clearAuthToken();
       set({ currentUser: null });
+      // Publish BEFORE logging: the store teardown clears the log panel (it
+      // names the objects the departing user opened), so a line written first
+      // would be wiped. Listeners run synchronously, so the store half of the
+      // teardown has completed by the time this call returns.
+      eventBus.publish("login", false);
       useLogStore.getState().log("User logged out", "info");
     } catch (error) {
       console.error("There was an error logging out:", error);

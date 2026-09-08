@@ -14,7 +14,14 @@ import type { AttributeInstance } from "@gds/models/instance/Instance_attributes
 
 /** Every signal the bus carries, and what each one delivers. */
 export interface EventPayloads {
-  /** A sign-in succeeded. */
+  /**
+   * The session changed: `true` when a sign-in succeeded, `false` on sign-out.
+   *
+   * `false` is what the session teardown hangs off — `session-reset` for the
+   * stores, `engine-reset` for the 3D engine. The bus is what lets those two
+   * subscribe without `authStore` importing either of them; the engine half
+   * especially, since the engine's module scope builds a WebGL renderer.
+   */
   login: boolean;
   /** The Preview button was pressed; the editor should flush its buffer. */
   previewButtonClicked: void;

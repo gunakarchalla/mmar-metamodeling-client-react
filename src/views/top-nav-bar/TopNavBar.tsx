@@ -10,6 +10,11 @@ import {
   ListItemText,
   Icon,
   Box,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import { useAuthStore } from "@/resources/store/authStore";
 import {
@@ -147,6 +152,24 @@ export default function TopNavBar({ onOpenLogin }: Props) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const logout = useAuthStore((s) => s.logout);
 
+  // Signing out tears the session down — every open tab goes with it, unsaved
+  // edits included — so it confirms when any tab has some, the way the Refresh
+  // button does for the same reason.
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+
+  function requestSignOut() {
+    if (useSelectedObjectStore.getState().hasUnsavedTabs()) {
+      setConfirmSignOut(true);
+      return;
+    }
+    void logout();
+  }
+
+  function signOutDiscarding() {
+    setConfirmSignOut(false);
+    void logout();
+  }
+
   return (
     <AppBar position="static" color="primary" elevation={1}>
       <Toolbar variant="dense" sx={{ gap: 1 }}>
@@ -165,7 +188,7 @@ export default function TopNavBar({ onOpenLogin }: Props) {
             <Typography variant="body2" sx={{ mx: 1 }}>
               {currentUser.username}
             </Typography>
-            <Button color="inherit" variant="outlined" onClick={() => logout()}>
+            <Button color="inherit" variant="outlined" onClick={requestSignOut}>
               Sign Out
             </Button>
           </>
@@ -181,6 +204,22 @@ export default function TopNavBar({ onOpenLogin }: Props) {
           src="//cdn.unifr.ch/uf/v2.4.5/gfx/logo.png"
         />
       </Toolbar>
+
+      <Dialog open={confirmSignOut} onClose={() => setConfirmSignOut(false)}>
+        <DialogTitle>Discard unsaved changes?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Signing out closes all open tabs and clears everything loaded from
+            the server. Some tabs have unsaved changes that will be lost.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmSignOut(false)}>Cancel</Button>
+          <Button onClick={signOutDiscarding} color="error" variant="contained">
+            Sign out and discard
+          </Button>
+        </DialogActions>
+      </Dialog>
     </AppBar>
   );
 }
