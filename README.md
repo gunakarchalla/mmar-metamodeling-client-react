@@ -37,14 +37,6 @@ with the loaded collections when the tab is saved.
   pieces shared between them.
 - **`src/engine/`** — the Three.js engine that renders the VizRep preview.
 
-### Code shared with the VizRep client
-
-`src/engine/` (except `index.ts`), `api.ts`, `expression-utility.ts`,
-`instance-utility.ts`, `logger.ts`, `editorStore.ts`, `logStore.ts`, `src/stubs/`
-and `src/types/` are kept **byte-identical** with the sibling
-`mmar-vizrep-client-react`. Change them in both clients together; the lint
-configuration exempts them so a local fix cannot fork the two copies by accident.
-
 ## Shared data structures (`@gds`)
 
 The DTOs in the sibling `../mmar-global-data-structure` are consumed unchanged

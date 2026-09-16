@@ -60,14 +60,12 @@ export default [
   },
 
   {
-    // These files are kept byte-identical with the sibling
-    // `mmar-vizrep-client-react`, which shares the 3D engine and the services
-    // built on it. Editing them here to satisfy a lint rule would fork the two
-    // copies, so they are exempt; fix them in both clients at once instead.
+    // The 3D engine and the services built on it are close ports of the original
+    // Aurelia code, typed loosely where the port kept its shape (about 130 `any`s).
+    // They are exempt from the rules below until they are typed properly.
     files: [
       "src/engine/**",
       "src/types/**",
-      "src/stubs/**",
       "src/resources/services/api.ts",
       "src/resources/services/expression-utility.ts",
       "src/resources/services/instance-utility.ts",
@@ -76,8 +74,8 @@ export default [
       "src/resources/store/logStore.ts",
     ],
     // The disable comments in these files target `no-unused-vars`, which is off
-    // here but on in the sibling copy, so ESLint 10 - which reports unused
-    // directives by default - would flag every one of them as pointless.
+    // here, so ESLint 10 - which reports unused directives by default - would flag
+    // every one of them as pointless.
     linterOptions: { reportUnusedDisableDirectives: "off" },
     rules: {
       "@typescript-eslint/no-explicit-any": "off",

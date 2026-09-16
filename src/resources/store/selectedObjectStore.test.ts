@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { selectCanRedo, selectCanUndo, useSelectedObjectStore } from "./selectedObjectStore";
 import { SceneType } from "@gds/models/meta/Metamodel_scenetypes.structure";
 import { Class } from "@gds/models/meta/Metamodel_classes.structure";
+import { AttributeType } from "@gds/models/meta/Metamodel_attributetypes.structure";
+import { Attribute } from "@gds/models/meta/Metamodel_attributes.structure";
 import { useEditorStore } from "./editorStore";
 
 const reset = () => useSelectedObjectStore.getState().resetObjects();
@@ -363,5 +365,40 @@ describe("selectedObjectStore undo/redo", () => {
 
     store().setSelectedObject("st-1");
     expect(canUndo()).toBe(false);
+  });
+});
+
+/**
+ * A table's columns are numbered by `sequence` from 1 without gaps (gds Instance_tables;
+ * the database refuses two columns at one position). The store keeps that numbering as
+ * columns come and go, rather than relying on the column list to renumber when it renders.
+ */
+describe("selectedObjectStore table columns", () => {
+  const store = () => useSelectedObjectStore.getState();
+  const sequences = () =>
+    (store().selectedObject as AttributeType).has_table_attribute.map((column) => [column.attribute.uuid, column.sequence]);
+
+  beforeEach(() => {
+    reset();
+    store().setObjects([AttributeType.fromJS({ uuid: "at-table", name: "Table", has_table_attribute: [] }) as AttributeType], "AttributeType");
+    store().setObjects(
+      ["a", "b", "c"].map((uuid) => Attribute.fromJS({ uuid, name: uuid.toUpperCase() }) as Attribute),
+      "Attribute",
+    );
+    store().setSelectedObject("at-table");
+  });
+
+  it("appends an added column after the last one", () => {
+    for (const uuid of ["a", "b", "c"]) store().addChild(uuid, "Column");
+    expect(sequences()).toEqual([["a", 1], ["b", 2], ["c", 3]]);
+  });
+
+  it("renumbers the columns after a removed one", () => {
+    for (const uuid of ["a", "b", "c"]) store().addChild(uuid, "Column");
+    store().removeChild("b", "Column");
+    expect(sequences()).toEqual([["a", 1], ["c", 2]]);
+
+    store().addChild("b", "Column");
+    expect(sequences()).toEqual([["a", 1], ["c", 2], ["b", 3]]);
   });
 });

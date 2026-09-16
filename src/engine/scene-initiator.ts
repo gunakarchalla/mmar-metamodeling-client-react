@@ -6,7 +6,8 @@ import { transformControlsEvents } from "@/engine/transform-control-events";
 /**
  * Port of the old `scene_initiator.ts`. DI stripped (P3 recipe): GlobalDefinition +
  * TransformControlsEvents become module-singleton imports (the unused MouseObject /
- * InteractionHandler deps are dropped). Bodies unchanged.
+ * InteractionHandler deps are dropped). Bodies unchanged, except for how
+ * `initTransformControls` retires the previous controls.
  */
 export class SceneInitiator {
   private globalObjectInstance = globalObject;
@@ -47,31 +48,25 @@ export class SceneInitiator {
   }
 
   async initTransformControls() {
-    // Tear down the controls that belonged to the previously-active tab.
-    //
-    // What gets added to the scene is `getHelper()` — a `TransformControlsRoot`,
-    // NOT a `TransformControls` (three >=0.169 split them; `TransformControls`
-    // extends `Controls`, not `Object3D`, so it is never in the scene graph at
-    // all). The old `instanceof TransformControls` sweep below therefore never
-    // matched anything, so every tab switch stranded the previous tab's gizmo —
-    // still `attach()`ed to its object and still `visible` — in the old scene,
-    // and leaked the three `pointer*` listeners its constructor put on the canvas.
+    // Retire the previous controls. Since three 0.169 TransformControls is a Controls
+    // rather than an Object3D: only its helper sits in a scene (possibly one already
+    // swapped out), so searching the scene can never find the controls themselves.
     const previous = this.globalObjectInstance.transformControls;
     if (previous) {
-      previous.detach(); // hides the helper root
-      previous.getHelper().removeFromParent(); // pull it out of whatever scene holds it
-      previous.disconnect(); // drop the canvas pointer listeners the constructor added
+      previous.detach();
+      const helper = previous.getHelper();
+      helper.removeFromParent();
+      // The gizmo builds its geometries and materials per instance, so nothing else holds them.
+      helper.traverse((child: THREE.Object3D) => {
+        const mesh = child as Partial<THREE.Mesh>;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) mesh.material.forEach((material) => material.dispose());
+        else mesh.material?.dispose();
+      });
+      // `disconnect()` rather than `dispose()`, which calls `this.traverse` in three 0.169
+      // and throws. It removes the pointer listeners the constructor put on the canvas.
+      previous.disconnect();
     }
-
-    // Belt and braces: remove any stranded gizmo roots left in the target scene
-    // by an earlier build that didn't clean up.
-    const staleRoots: THREE.Object3D[] = [];
-    this.globalObjectInstance.scene.traverse((child: THREE.Object3D) => {
-      if ((child as { isTransformControlsRoot?: boolean }).isTransformControlsRoot) {
-        staleRoots.push(child);
-      }
-    });
-    staleRoots.forEach((root) => root.removeFromParent());
 
     this.globalObjectInstance.transformControls = new TransformControls(this.globalObjectInstance.camera, this.globalObjectInstance.renderer.domElement);
 

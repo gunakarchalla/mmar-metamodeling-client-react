@@ -22,7 +22,7 @@ import { expressionUtility } from "@/resources/services/expression-utility";
  * GlobalDefinition / MetaUtility / InstanceUtility / Logger / ExpressionUtility
  * become module-singleton imports; the `@singleton()` decorator and aurelia import
  * are dropped. Method bodies are unchanged apart from logic-preserving annotations
- * required by this repo's strict TS (the old vizrep tsconfig was non-strict): casts
+ * required by this repo's strict TS (the original's tsconfig was non-strict): casts
  * for indexing the gds `custom_variables` ({}) maps, non-null assertions on
  * `Object3D.parent` / `BufferGeometry.boundingBox` / `getObjectByProperty`, and
  * `any` annotations on a few implicit-any callback params.

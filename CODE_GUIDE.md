@@ -197,7 +197,7 @@ All five live in [src/resources/store/](src/resources/store/):
 |---|---:|---|---|
 | [selectedObjectStore.ts](src/resources/store/selectedObjectStore.ts) | 906 | `SelectedObjectService` | the metamodel tree + current selection + open tabs + per-tab undo history |
 | [authStore.ts](src/resources/store/authStore.ts) | 135 | `UserService` | `currentUser`, JWT helpers |
-| [editorStore.ts](src/resources/store/editorStore.ts) | 52 | vizrep's globals | the Monaco buffer + preview UI state |
+| [editorStore.ts](src/resources/store/editorStore.ts) | 52 | the VizRep editor's globals | the Monaco buffer + preview UI state |
 | [logStore.ts](src/resources/store/logStore.ts) | 35 | `Logger` + `MdcSnackbarService` | log list + snackbar |
 | [uiStore.ts](src/resources/store/uiStore.ts) | 24 | the `"refresh"` EA channel | the refresh signal |
 
@@ -648,7 +648,7 @@ Every meta object carries a `geometry` field: a string of JavaScript defining an
 `async function vizRep(gc)` that draws the object in 3D. For most types the
 General tab just shows that string in a textarea. For the three types the preview
 pipeline understands — **`Class`, `RelationClass`, `Port`** — it instead shows the
-*VizRep editor block*, ported from the sibling `mmar-vizrep-client-react`:
+*VizRep editor block*:
 
 ```
 ┌─ VizRepGeometryEditor ──────────────┐
@@ -739,10 +739,9 @@ Three rules learned the hard way here:
 (`"Class"` / `"RelationClass"` / `"Port"`) — the same signal `GeneralTab` uses to
 decide whether to render the block at all, so the two can never disagree.
 
-It is tempting to write `selected instanceof Class`, and the vizrep client does
-exactly that. **It does not work here.** That client's backend service revives every
-response into a gds class (`data.map(Class.fromJS)`); this client's
-`backendService.loadObjects()` pushes the raw parsed JSON straight into the store, and
+It is tempting to write `selected instanceof Class`. **It does not work here.** This
+client's `backendService.loadObjects()` pushes the raw parsed JSON straight into the
+store rather than reviving it into gds classes (`data.map(Class.fromJS)`), and
 only `SceneType` and `SceneInstance` are ever run through `fromJS`. So the objects in
 `selectedObjectStore` are plain objects whose prototype is `Object.prototype`, and
 every `instanceof` check silently falls through — which is exactly how the preview
@@ -786,7 +785,7 @@ concurrency-safe:
 
 ### Design decisions (D1–D12)
 
-Locked during the vizrep→metamodeling integration. **This table is the record.**
+Locked when the VizRep editor was integrated. **This table is the record.**
 (Earlier revisions of this guide deferred to "the aggregator's `plan.md`"; that
 pointer is dead — `../plan.md` is now the *modeling*-client migration plan and
 carries no D-rows.)
@@ -801,14 +800,14 @@ carries no D-rows.)
 | D6 | Monaco theme `vs-dark`. The canvas container renders on **`#ffffff`** — an earlier revision of this guide recorded `#1e1e1e`, which is not what the code does. |
 | D7 | Fixed pixel heights (300 / 44 / 400) — percentages collapse inside the scrolling tab. The editor box is user-resizable; Monaco's `automaticLayout` picks the new height up. |
 | D8 | Beautify-on-load touches the editor buffer only, never the object. |
-| D9 | Dependency versions pinned to the vizrep client's (verified identical for `three`, `monaco-editor`, `@monaco-editor/react`, `js-beautify`, `troika-three-text`, `zustand`). |
+| D9 | Dependency versions pinned for `three`, `monaco-editor`, `@monaco-editor/react`, `js-beautify`, `troika-three-text` and `zustand`. |
 | D10 | Monaco is self-hosted via `monaco-setup.ts`; no CDN. |
-| D11 | The vizrep AttributeWindow is not ported — `updateAttributeGui` / `removeAttributeGui` are published with no listeners. |
+| D11 | There is no AttributeWindow — `updateAttributeGui` / `removeAttributeGui` are published with no listeners. |
 | D12 | Dev-only test deps (`jsdom`, `@testing-library/react`) for the component suites. |
 
 One later addition sits outside the table: **PreviewButtons also owns a 2D/3D
-toggle**. Vizrep drives that from a toolbar this client does not have, so it lives
-next to Preview — the one control row this feature owns.
+toggle**. This client has no toolbar to put it in, so it lives next to Preview — the
+one control row this feature owns.
 
 ---
 
