@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 import { SceneType } from "@gds/models/meta/Metamodel_scenetypes.structure";
 import { MetaObject, UUID } from "@gds/models/meta/Metamodel_metaobjects.structure";
+import type { Attribute } from "@gds/models/meta/Metamodel_attributes.structure";
+import type { AttributeType } from "@gds/models/meta/Metamodel_attributetypes.structure";
 import { SceneInstance } from "@gds/models/instance/Instance_scenes.structure";
 import {
   META_TYPES,
@@ -13,6 +15,7 @@ import { useSelectedObjectStore } from "@/resources/store/selectedObjectStore";
 import { useLogStore } from "@/resources/store/logStore";
 import { useAuthStore } from "@/resources/store/authStore";
 import { apiFetch, errorMessageOf } from "./api";
+import { attributeSaveProblems, attributeTypeSaveProblems } from "./metamodel-constraints";
 import { authHeaders } from "./auth-token";
 import { dataUrlToFile } from "./helper-service";
 
@@ -185,6 +188,10 @@ export class BackendService {
       } else {
         if (type === "Attribute") {
           content.attribute_type = { uuid: DEFAULT_ATTRIBUTE_TYPE_UUID };
+          // The value every instance of it starts out holding. Empty is a value like
+          // any other: the attribute type's expression decides whether it is allowed,
+          // and the default type's accepts it.
+          content.default_value = "";
         }
         if (type === "AttributeType") {
           content.regex_value = DEFAULT_ATTRIBUTE_TYPE_REGEX;
@@ -221,6 +228,22 @@ export class BackendService {
   }
 
   /**
+   * What the metamodel refuses about this object, as sentences, or nothing when it may
+   * be saved. Only an attribute and an attribute type carry values the metamodel can
+   * refuse: an attribute is held to its attribute type, and a type only has to state a
+   * regular expression that can be applied.
+   */
+  private metamodelProblems(objectToSave: MetaObject, type: string): string[] {
+    if (type === "Attribute") {
+      return attributeSaveProblems(objectToSave as unknown as Attribute);
+    }
+    if (type === "AttributeType") {
+      return attributeTypeSaveProblems(objectToSave as unknown as AttributeType);
+    }
+    return [];
+  }
+
+  /**
    * Persist one object.
    *
    * Split out of `saveSelectedObject` so a background tab can be saved — the
@@ -249,12 +272,25 @@ export class BackendService {
         query.set("quality", String(object.quality));
       }
 
+      const problems = this.metamodelProblems(objectToSave, type);
+      if (problems.length > 0) {
+        // Refused before it is sent, and the tab stays dirty: the author keeps what
+        // they typed and can fix it. The server refuses the same write (see the
+        // attribute rules in mmar-server), so this is the readable half of one rule.
+        log(`${object.name} cannot be saved: ${problems.join("; ")}.`, "error");
+        return;
+      }
+
       const response = await apiFetch(`${path}/${object.uuid}?${query}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify(object),
       });
-      if (!response.ok) throw new Error(`Failed to save ${type}`);
+      // The reason is the server's rule talking - a refused default value, a facet the
+      // attribute type does not allow - and saying only "Failed to save" throws it away.
+      if (!response.ok) {
+        throw new Error(`${response.statusText} - ${await errorMessageOf(response)}`);
+      }
 
       log(`Object ${object.name} saved`, "info");
       const saved = await response.json();

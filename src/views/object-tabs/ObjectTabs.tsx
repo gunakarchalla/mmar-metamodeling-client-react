@@ -57,7 +57,17 @@ export default function ObjectTabs() {
     if (!pendingClose) return;
     setSaving(true);
     try {
-      await backendService.saveObject(pendingClose.object, pendingClose.type);
+      const saved = await backendService.saveObject(pendingClose.object, pendingClose.type);
+      // A save can be refused — by the metamodel rules the client checks before sending,
+      // or by the server — and `saveObject` answers with nothing when it was. Closing
+      // anyway would throw the edits away on the one path that exists to keep them. The
+      // dialog goes, since the field to fix is behind it and the refusal is already on
+      // screen as the error snackbar; the tab stays open and stays dirty.
+      if (!saved) {
+        activateTab(pendingClose.uuid);
+        setPendingClose(null);
+        return;
+      }
       closeTab(pendingClose.uuid);
       setPendingClose(null);
       triggerRefresh();
