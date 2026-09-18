@@ -6,7 +6,8 @@ import { transformControlsEvents } from "@/engine/transform-control-events";
 /**
  * Port of the old `scene_initiator.ts`. DI stripped (P3 recipe): GlobalDefinition +
  * TransformControlsEvents become module-singleton imports (the unused MouseObject /
- * InteractionHandler deps are dropped). Bodies unchanged.
+ * InteractionHandler deps are dropped). Bodies unchanged, except for how
+ * `initTransformControls` retires the previous controls.
  */
 export class SceneInitiator {
   private globalObjectInstance = globalObject;
@@ -47,18 +48,24 @@ export class SceneInitiator {
   }
 
   async initTransformControls() {
-    let oldTransformControls: TransformControls | undefined;
-    // search in scene for transformControls
-    this.globalObjectInstance.scene.traverse((child: THREE.Object3D) => {
-      if (child instanceof TransformControls) {
-        oldTransformControls = child;
-      }
-    });
-
-    if (oldTransformControls) {
-      // remove old transformControls from scene.children
-      // (cast: three >=0.169 TransformControls no longer extends Object3D)
-      this.globalObjectInstance.scene.remove(oldTransformControls as any);
+    // Retire the previous controls. Since three 0.169 TransformControls is a Controls
+    // rather than an Object3D: only its helper sits in a scene (possibly one already
+    // swapped out), so searching the scene can never find the controls themselves.
+    const previous = this.globalObjectInstance.transformControls;
+    if (previous) {
+      previous.detach();
+      const helper = previous.getHelper();
+      helper.removeFromParent();
+      // The gizmo builds its geometries and materials per instance, so nothing else holds them.
+      helper.traverse((child: THREE.Object3D) => {
+        const mesh = child as Partial<THREE.Mesh>;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) mesh.material.forEach((material) => material.dispose());
+        else mesh.material?.dispose();
+      });
+      // `disconnect()` rather than `dispose()`, which calls `this.traverse` in three 0.169
+      // and throws. It removes the pointer listeners the constructor put on the canvas.
+      previous.disconnect();
     }
 
     this.globalObjectInstance.transformControls = new TransformControls(this.globalObjectInstance.camera, this.globalObjectInstance.renderer.domElement);

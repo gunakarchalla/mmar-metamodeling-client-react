@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
-import { ClassInstance, Attribute, AttributeInstance, UUID, Class, Relationclass, RelationclassInstance, SceneInstance, PortInstance, RoleInstance } from "@gds";
+import { ClassInstance, Attribute, AttributeInstance, UUID, Class, Relationclass, RelationclassInstance, SceneInstance, PortInstance, RoleInstance, add_table_row, table_columns_in_order } from "@gds";
 import { globalObject } from "@/engine/global-definition";
 import { globalClassObject } from "@/engine/global-class-object";
 import { globalRelationclassObject } from "@/engine/global-relationclass-object";
@@ -78,34 +78,18 @@ export class InstanceCreationHandler {
     //push to log file
     this.logger.log("Attribute Instance " + attribute_instance.value + " created", "done");
 
-    //if instance is a instance for a table, create the first row of tabel attribute instances
-    if (attribute.attribute_type.has_table_attribute != null) {
-      const attribute_type = attribute.attribute_type;
-      const has_table_attribute = attribute_type.has_table_attribute;
-
-      for (const column of has_table_attribute) {
-        const newAttributeInstance: AttributeInstance = new AttributeInstance(
-          this.create_UUID(),
-          column.attribute.uuid,
-          null as any,
-          null as any,
-          //get attribute type default value
-          attribute.default_value ? attribute.default_value : "not defined",
-          null as any,
-          null as any,
-          null as any,
-          null as any,
-          column.attribute.uuid,
-          role_from,
-        );
-        newAttributeInstance.table_row = 0;
-        attribute_instance.table_attributes.push(newAttributeInstance);
-      }
-    }
-
-    // if instance is a cell in the table
-    if (table_attribute_reference != null) {
-      // empty in original
+    // A table starts with one row: a cell per column, in column order, holding the
+    // column's default. The table rules live in gds (Instance_tables).
+    const columns = table_columns_in_order(attribute.attribute_type.has_table_attribute ?? []);
+    if (columns.length > 0) {
+      add_table_row(
+        attribute_instance,
+        columns.map((column) => {
+          const cell = new AttributeInstance(this.create_UUID(), column.attribute.uuid, null as any, null as any, column.attribute.default_value ?? "");
+          cell.name = column.attribute.name;
+          return cell;
+        }),
+      );
     }
 
     //if attached to class_instance
@@ -230,8 +214,9 @@ export class InstanceCreationHandler {
           attribute,
           null as any,
           class_instance.uuid,
-          // if there is a default value in the attribute type, we evaluate the expression in the attribute type
-          attribute.default_value ? attribute.default_value : "not defined",
+          // The attribute's default value, or "" when it states none: an unset value is
+          // empty, and whether that is allowed is what the attribute type's regex says.
+          attribute.default_value || "",
           null as any,
           null as any,
           null as any,
@@ -298,7 +283,7 @@ export class InstanceCreationHandler {
       //call function to instantiate attribute and add to class_instance
       if (attribute.attribute_type.has_table_attribute.length == 0) {
         //call function to instantiate attribute and add to class_instance
-        this.createAttributeInstance(attribute, null as any, relationclass_instance.uuid, attribute.default_value ? attribute.default_value : "not defined", null as any, null as any, null as any, null as any, null as any, null as any);
+        this.createAttributeInstance(attribute, null as any, relationclass_instance.uuid, attribute.default_value || "", null as any, null as any, null as any, null as any, null as any, null as any);
       } else {
         this.createAttributeInstance(attribute, null as any, relationclass_instance.uuid, "", null as any, null as any, null as any, null as any, null as any, null as any);
       }
@@ -391,8 +376,9 @@ export class InstanceCreationHandler {
           attribute,
           null as any,
           null as any,
-          // if there is a default value in the attribute type, we evaluate the expression in the attribute type
-          attribute.default_value ? attribute.default_value : "not defined",
+          // The attribute's default value, or "" when it states none: an unset value is
+          // empty, and whether that is allowed is what the attribute type's regex says.
+          attribute.default_value || "",
           port_instance.uuid,
           null as any,
           null as any,

@@ -468,21 +468,28 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
     setSelected(user);
   };
 
-  const addColumn = (uuid: UUID, sequence: number) => {
+  // A table's columns are numbered by `sequence` from 1 without gaps (see Instance_tables
+  // in gds; the database refuses two columns at one position), so adding and removing a
+  // column keep that numbering here rather than leaving it to whatever renders the list.
+  const addColumn = (uuid: UUID) => {
     const attribute = get().getObjectFromUuid(uuid) as Attribute | null;
     if (!attribute) {
       console.warn(`Attribute with uuid ${uuid} not found`);
       return;
     }
-    selected<AttributeType>().has_table_attribute.push(new ColumnStructure(attribute, sequence));
+    const columns = selected<AttributeType>().has_table_attribute;
+    columns.push(new ColumnStructure(attribute, columns.length + 1));
     commit();
   };
 
   const removeColumn = (uuid: UUID) => {
     const attributeType = selected<AttributeType>();
-    attributeType.has_table_attribute = attributeType.has_table_attribute.filter(
-      (column) => column.attribute.uuid !== uuid,
-    );
+    attributeType.has_table_attribute = attributeType.has_table_attribute
+      .filter((column) => column.attribute.uuid !== uuid)
+      .map((column, index) => {
+        column.sequence = index + 1;
+        return column;
+      });
     commit();
   };
 
@@ -584,7 +591,7 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set, get) => 
       remove: removeAttributeTypeReference,
     },
     Column: {
-      add: (uuid) => addColumn(uuid, 1),
+      add: (uuid) => addColumn(uuid),
       remove: removeColumn,
     },
     UserGroup: {

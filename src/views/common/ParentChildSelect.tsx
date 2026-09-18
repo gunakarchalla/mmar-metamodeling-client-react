@@ -162,12 +162,10 @@ export default function ParentChildSelect({
     // Roles store references; show the objects they point at.
     if (isRoleList) return rawItems.flatMap((role) => getObjectsFromRole(role));
 
-    // Table columns are rebuilt so each row carries its position as `sequence`.
+    // Table columns show their attribute. The store keeps their `sequence` in step with
+    // their position (see addColumn / removeColumn and moveRow below).
     if (childType === "Column") {
-      return rawItems.map((column, index) => {
-        column.sequence = index + 1;
-        return new ColumnStructure({ ...column.attribute }, index + 1).get_attribute();
-      });
+      return rawItems.map((column, index) => new ColumnStructure({ ...column.attribute }, index + 1).get_attribute());
     }
 
     // Rights store bare uuids; resolve each to the object it names.

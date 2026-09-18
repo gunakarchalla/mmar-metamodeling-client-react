@@ -29,6 +29,8 @@ export function BoundText({
   multiline,
   rows,
   maxLength,
+  error,
+  helperText,
 }: {
   label: string;
   path: string;
@@ -37,6 +39,9 @@ export function BoundText({
   multiline?: boolean;
   rows?: number;
   maxLength?: number;
+  /** Shown as a rejected field: the value is kept and typing goes on. */
+  error?: boolean;
+  helperText?: string;
 }) {
   return (
     <TextField
@@ -46,6 +51,8 @@ export function BoundText({
       multiline={multiline}
       rows={multiline ? rows : undefined}
       slotProps={{ htmlInput: maxLength ? { maxLength } : undefined }}
+      error={error}
+      helperText={helperText}
       fullWidth
       size="small"
     />
