@@ -137,7 +137,6 @@ export class ArInitiator {
   }
 
   onSelectStart(event: any) {
-    console.log("pichstart");
     let controller = event.target;
 
     if (controller === this.hand1) {
@@ -149,14 +148,11 @@ export class ArInitiator {
       controller === undefined;
     }
 
-    console.log(controller);
-
     let intersection: THREE.Intersection | undefined = undefined;
 
     if (controller === this.controller1 && !intersection) {
       intersection = (this.handPointer1.intersectObjects(this.globalObjectInstance.dragObjects, false) as THREE.Intersection[])[0];
       if (intersection) {
-        console.log("object c1");
         if (intersection.object.parent === this.controller2) {
           return;
         }
@@ -165,7 +161,6 @@ export class ArInitiator {
     if (controller === this.controller2 && !intersection) {
       intersection = (this.handPointer2.intersectObjects(this.globalObjectInstance.dragObjects, false) as THREE.Intersection[])[0];
       if (intersection) {
-        console.log("object c2");
         if (intersection.object.parent === this.controller1) {
           return;
         }
@@ -206,7 +201,6 @@ export class ArInitiator {
       parent.attach(object);
       controller.userData.objectParent = undefined;
       controller.userData.selected = undefined;
-      console.log("object detached");
     }
   }
 

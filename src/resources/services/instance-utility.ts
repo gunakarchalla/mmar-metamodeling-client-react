@@ -517,7 +517,6 @@ export class InstanceUtility {
         await this.getAllAttributeInstancesFromObjectInstanceRecursively(currentSceneInstance)
       ).find((inst) => inst.uuid === uuid);
       if (instance) {
-        console.log("instance in current tab found", instance);
         return instance;
       }
     }
@@ -528,7 +527,6 @@ export class InstanceUtility {
         await this.getAllAttributeInstancesFromObjectInstanceRecursively(sceneInstance)
       ).find((inst) => inst.uuid === uuid);
       if (instance) {
-        console.log("instance in all sceneInstances found", instance);
         return instance;
       }
     }

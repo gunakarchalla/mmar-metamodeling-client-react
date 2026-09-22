@@ -30,7 +30,7 @@ The stack swap is the whole point:
 
 | Concern | Old (Aurelia) | New (React) |
 |---|---|---|
-| UI framework | Aurelia 2 | **React 18** |
+| UI framework | Aurelia 2 | **React 19** |
 | State / services | DI services + EventAggregator | **Zustand** stores |
 | UI components | `@aurelia-mdc-web` | **MUI** (Material UI) |
 | Build tool | webpack | **Vite** |
@@ -1014,23 +1014,22 @@ share resolution):
 - `@gds` → the sibling `../mmar-global-data-structure` repo — the shared DTOs are
   consumed **directly from source**, not npm-installed or copied.
 
-It also **stubs out `jsonwebtoken`** (a Node-only library the shared `User` class
-imports for server-side signing) so it does not crash the browser bundle — see
-[src/stubs/jsonwebtoken.ts](src/stubs/jsonwebtoken.ts). The stub needs *two*
-mechanisms: `resolve.alias` to redirect the import, **and** `optimizeDeps.exclude`
-so esbuild's dep pre-bundler doesn't grab the real package before the alias can
-apply. This kind of "shared code assumes Node, but we are in a browser" friction is
-common when sharing models between server and client.
+There used to be a third piece of glue here: the shared `User` class signed and
+verified tokens itself, so it imported the Node-only `jsonwebtoken`, and the build
+had to alias that import to a browser stub (and exclude it from esbuild's dep
+pre-bundling, or the real package was grabbed before the alias applied). Token
+signing and verification now live in `mmar-server`'s token service, gds carries no
+Node-only import, and both the stub and the aliasing are gone.
 
 Config is read in exactly one place, [src/config.ts](src/config.ts) — services must
 import `API_URL` from there and never touch `import.meta.env` directly. Vite loads
-`.env` always and `.env.development` on top of it in dev, so `npm run dev` targets
-`http://localhost:8000` (the browser runs on the host) while a production build
-falls back to `.env`'s `http://mmar-server:8000` (the in-container hostname).
+`.env` always and `.env.development` on top of it in dev. Both set
+`http://localhost:8000`: the browser runs on the host even when the server is in a
+container, so the in-container hostname `mmar-server:8000` would not resolve for it.
 
 ## Tests
 
-`npm run test` → **219 tests across 26 files**, all green. Vitest defaults to the
+`npm run test` → **230 tests across 27 files**, all green. Vitest defaults to the
 `node` environment; the component suites opt into jsdom per-file with a
 `// @vitest-environment jsdom` docblock — cheaper than a global switch, and it keeps
 the blast radius small. [src/test-setup.ts](src/test-setup.ts) imports

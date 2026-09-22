@@ -438,8 +438,6 @@ export class GraphicContext {
       this.button3D[object.uuid] = object;
     }
 
-    console.log("button created with expression: " + expression);
-    console.log(this.button3D);
     return object;
   }
 

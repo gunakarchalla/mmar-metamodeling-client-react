@@ -88,6 +88,7 @@ Bundling splits `three`, `monaco-editor` and the React/MUI vendor code into
 their own chunks, and the two subtrees that pull the first two in — the VizRep
 editor and the procedure editor — are loaded lazily, so neither is downloaded
 before you open an object that needs it.
+
 ## License
 
 This repository is licensed under the GNU AFFERO GENERAL PUBLIC LICENSE Version 3. 

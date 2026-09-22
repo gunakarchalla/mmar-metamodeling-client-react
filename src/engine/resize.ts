@@ -41,8 +41,6 @@ export class Resize {
 
     this.globalObjectInstance.renderer.setSize(this.globalObjectInstance.elementContainer.clientWidth, this.globalObjectInstance.elementContainer.clientHeight, true);
 
-    console.log("resized");
-
     this.globalObjectInstance.render = true;
   }
 }
